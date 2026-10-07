@@ -111,7 +111,7 @@ export default function CheckoutModal({ table, isOpen, onClose, onSuccess }) {
   };
 
   return (
-    <div 
+    <div
       onClick={onClose}
       style={{
         position: 'fixed',
@@ -129,8 +129,8 @@ export default function CheckoutModal({ table, isOpen, onClose, onSuccess }) {
         cursor: 'pointer'
       }}
     >
-      <div 
-        className="glass-panel" 
+      <div
+        className="glass-panel"
         onClick={(e) => e.stopPropagation()}
         style={{
           width: '100%',
