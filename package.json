@@ -1,0 +1,20 @@
+{
+  "name": "billarpulse",
+  "version": "1.0.0",
+  "description": "Sistema POS & Marcador Táctil Offline-First para Salas de Billar",
+  "scripts": {
+    "start": "node server/index.js",
+    "build": "cd client && npm run build",
+    "dev:client": "cd client && npm run dev",
+    "dev:server": "cd server && node index.js"
+  },
+  "keywords": [
+    "billar",
+    "pos",
+    "scoreboard",
+    "offline-first",
+    "kiosk"
+  ],
+  "author": "BillarPulse Team",
+  "license": "ISC"
+}
