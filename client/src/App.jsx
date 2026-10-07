@@ -6,6 +6,7 @@ import PinModal from './components/PinModal';
 import ShiftReportModal from './components/ShiftReportModal';
 import AdminManagementModal from './components/AdminManagementModal';
 import HistoryModal from './components/HistoryModal';
+import AnalyticsModal from './components/AnalyticsModal';
 import { network, api } from './services/api';
 import { sounds } from './utils/audio';
 
@@ -22,11 +23,12 @@ export default function App() {
   const [stats, setStats] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
 
-  // Security, Report and Admin modals
+  // Security, Report, Admin and Analytics modals
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [isShiftReportOpen, setIsShiftReportOpen] = useState(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [isAnalyticsModalOpen, setIsAnalyticsModalOpen] = useState(false);
 
   // Initial fetch
   const refreshData = useCallback(async () => {
@@ -102,6 +104,7 @@ export default function App() {
         onOpenShiftReport={() => setIsShiftReportOpen(true)}
         onOpenAdmin={() => setIsAdminModalOpen(true)}
         onOpenHistory={() => setIsHistoryModalOpen(true)}
+        onOpenAnalytics={() => setIsAnalyticsModalOpen(true)}
         onRequestCajaAccess={handleRequestCajaAccess}
       />
 
@@ -146,6 +149,12 @@ export default function App() {
       <HistoryModal
         isOpen={isHistoryModalOpen}
         onClose={() => setIsHistoryModalOpen(false)}
+      />
+
+      {/* Business Intelligence & Analytics Modal */}
+      <AnalyticsModal
+        isOpen={isAnalyticsModalOpen}
+        onClose={() => setIsAnalyticsModalOpen(false)}
       />
     </div>
   );

@@ -301,6 +301,11 @@ export const api = {
     return res.json();
   },
 
+  async getAnalytics(range = 'today') {
+    const res = await fetch(`${HTTP_BASE}/api/admin/analytics?range=${range}`);
+    return res.json();
+  },
+
   getBackupDownloadUrl() {
     return `${HTTP_BASE}/api/admin/backup/download`;
   }

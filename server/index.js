@@ -495,6 +495,17 @@ app.post('/api/auth/update-pin', (req, res) => {
   }
 });
 
+// Analytics and Statistical Reports
+app.get('/api/admin/analytics', (req, res) => {
+  try {
+    const range = req.query.range || 'today';
+    const data = dbOperations.getAnalytics(range);
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Download SQLite Database Backup
 app.get('/api/admin/backup/download', (req, res) => {
   try {

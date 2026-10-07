@@ -818,6 +818,116 @@ const dbOperations = {
     return { session, items };
   },
 
+  getAnalytics(range = 'today') {
+    let dateFilter = '';
+    if (range === 'today') {
+      dateFilter = "AND date(s.start_time) = date('now')";
+    } else if (range === 'week') {
+      dateFilter = "AND date(s.start_time) >= date('now', '-6 days')";
+    } else if (range === 'month') {
+      dateFilter = "AND date(s.start_time) >= date('now', 'start of month')";
+    } else {
+      dateFilter = ""; // 'all'
+    }
+
+    // 1. General KPIs
+    const kpis = db.prepare(`
+      SELECT 
+        COUNT(*) as total_sessions,
+        COALESCE(SUM(s.total_amount), 0) as total_revenue,
+        COALESCE(SUM(s.time_cost), 0) as time_revenue,
+        COALESCE(SUM(s.consumption_cost), 0) as consumption_revenue,
+        COALESCE(AVG(s.total_amount), 0) as avg_ticket,
+        COALESCE(AVG(s.total_time_minutes), 0) as avg_minutes
+      FROM sessions s
+      WHERE s.status = 'closed' ${dateFilter}
+    `).get();
+
+    // 2. Top Selling Products
+    const topProducts = db.prepare(`
+      SELECT 
+        p.name, 
+        p.category, 
+        SUM(oi.quantity) as total_qty, 
+        SUM(oi.subtotal) as total_revenue
+      FROM orders o
+      JOIN sessions s ON s.id = o.session_id
+      JOIN order_items oi ON oi.order_id = o.id
+      JOIN products p ON p.id = oi.product_id
+      WHERE s.status = 'closed' ${dateFilter}
+      GROUP BY p.id
+      ORDER BY total_qty DESC
+      LIMIT 8
+    `).all();
+
+    // 3. Payment Methods Breakdown
+    const paymentMethods = db.prepare(`
+      SELECT 
+        COALESCE(s.payment_method, 'Efectivo') as method,
+        COUNT(*) as count,
+        COALESCE(SUM(s.total_amount), 0) as total
+      FROM sessions s
+      WHERE s.status = 'closed' ${dateFilter}
+      GROUP BY method
+      ORDER BY total DESC
+    `).all();
+
+    // 4. Peak Hours (Distribution of sessions by start hour 00-23)
+    const peakHours = db.prepare(`
+      SELECT 
+        CAST(strftime('%H', s.start_time) AS INTEGER) as hour,
+        COUNT(*) as count,
+        COALESCE(SUM(s.total_amount), 0) as revenue
+      FROM sessions s
+      WHERE s.status = 'closed' ${dateFilter}
+      GROUP BY hour
+      ORDER BY hour ASC
+    `).all();
+
+    // 5. Daily Trend
+    const dailyTrend = db.prepare(`
+      SELECT 
+        date(s.start_time) as day,
+        COUNT(*) as sessions_count,
+        COALESCE(SUM(s.total_amount), 0) as total_revenue,
+        COALESCE(SUM(s.time_cost), 0) as time_revenue,
+        COALESCE(SUM(s.consumption_cost), 0) as consumption_revenue
+      FROM sessions s
+      WHERE s.status = 'closed' ${dateFilter}
+      GROUP BY day
+      ORDER BY day ASC
+      LIMIT 30
+    `).all();
+
+    // 6. Revenue by Table / Bar
+    const byTable = db.prepare(`
+      SELECT 
+        t.id,
+        t.table_number,
+        t.name,
+        t.type,
+        COUNT(s.id) as sessions_count,
+        COALESCE(SUM(s.total_amount), 0) as total_revenue,
+        COALESCE(SUM(s.time_cost), 0) as time_revenue,
+        COALESCE(SUM(s.consumption_cost), 0) as consumption_revenue
+      FROM sessions s
+      JOIN tables t ON t.id = s.table_id
+      WHERE s.status = 'closed' ${dateFilter}
+      GROUP BY t.id
+      ORDER BY total_revenue DESC
+    `).all();
+
+    return {
+      range,
+      kpis,
+      topProducts,
+      paymentMethods,
+      peakHours,
+      dailyTrend,
+      byTable
+    };
+  },
+
   getShiftReport() {
     const today = new Date().toISOString().slice(0, 10);
     const sessions = db.prepare(`

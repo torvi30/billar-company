@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Wifi, WifiOff, Volume2, LayoutGrid, Tablet, Clock, FileText, Settings, Receipt } from 'lucide-react';
+import { Wifi, WifiOff, Volume2, LayoutGrid, Tablet, Clock, FileText, Settings, Receipt, TrendingUp } from 'lucide-react';
 import { sounds } from '../utils/audio';
 
 export default function Navbar({ 
@@ -12,6 +12,7 @@ export default function Navbar({
   onOpenShiftReport,
   onOpenAdmin,
   onOpenHistory,
+  onOpenAnalytics,
   onRequestCajaAccess
 }) {
   const [timeStr, setTimeStr] = useState('');
@@ -151,6 +152,24 @@ export default function Navbar({
             </button>
 
             <button
+              onClick={onOpenAnalytics}
+              style={{
+                padding: '0.5rem 0.85rem',
+                background: 'rgba(255, 255, 255, 0.08)',
+                color: '#fff',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: 'var(--radius-sm)',
+                fontSize: '0.85rem',
+                fontWeight: 700,
+                gap: '0.4rem',
+                cursor: 'pointer'
+              }}
+            >
+              <TrendingUp size={15} color="var(--color-brand)" />
+              Estadísticas
+            </button>
+
+            <button
               onClick={onOpenHistory}
               style={{
                 padding: '0.5rem 0.85rem',
@@ -164,7 +183,7 @@ export default function Navbar({
                 cursor: 'pointer'
               }}
             >
-              <Receipt size={15} color="var(--color-brand)" />
+              <Receipt size={15} color="var(--color-gold)" />
               Historial
             </button>
 
