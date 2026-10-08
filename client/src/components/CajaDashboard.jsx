@@ -403,7 +403,7 @@ export default function CajaDashboard({ tablesOverview, stats, onStateChange, on
                           {table.name}
                         </div>
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                          Tarifa: {formatCurrency(table.hourly_rate)}/hr • {table.type.toUpperCase()}
+                          Tarifa: <strong style={{ color: 'var(--color-brand)' }}>{formatCurrency(table.hourly_rate)}/hr</strong> <span style={{ opacity: 0.8 }}>({formatCurrency(Math.round(table.hourly_rate / 60))}/min)</span> • {table.type.toUpperCase()}
                         </div>
                       </div>
                     </div>
