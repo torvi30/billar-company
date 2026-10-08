@@ -14,6 +14,7 @@ export default function CheckoutModal({ table, isOpen, onClose, onSuccess }) {
   const [ticketPrinted, setTicketPrinted] = useState(false);
   const [applyGrace, setApplyGrace] = useState(false);
   const [businessSettings, setBusinessSettings] = useState({});
+  const [ticketWidth, setTicketWidth] = useState('58mm'); // '58mm' | '80mm'
 
   const p1Name = (table && table.score && table.score.player1_name) || 'Jugador 1';
   const p2Name = (table && table.score && table.score.player2_name) || 'Jugador 2';
@@ -95,6 +96,21 @@ export default function CheckoutModal({ table, isOpen, onClose, onSuccess }) {
     setLoading(true);
     try {
       sounds.playCashRegister();
+      await api.endSession(session.id, paymentMethod, applyGrace);
+      onSuccess();
+      onClose();
+    } catch (e) {
+      alert(e.message || 'Error al liquidar la mesa');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCheckoutAndPrint = async () => {
+    setLoading(true);
+    try {
+      sounds.playCashRegister();
+      window.print();
       await api.endSession(session.id, paymentMethod, applyGrace);
       onSuccess();
       onClose();
@@ -522,72 +538,149 @@ export default function CheckoutModal({ table, isOpen, onClose, onSuccess }) {
                 </span>
               </div>
 
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                {/* 1-Click: Cobrar e Imprimir Ticket */}
                 <button
-                  onClick={handlePrintTicket}
-                  style={{
-                    padding: '0.75rem 1rem',
-                    background: 'rgba(255, 255, 255, 0.08)',
-                    color: '#fff',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--border-subtle)',
-                    fontSize: '0.85rem',
-                    fontWeight: 700,
-                    gap: '0.4rem',
-                    cursor: 'pointer'
-                  }}
-                >
-                  <Printer size={16} />
-                  Ticket
-                </button>
-
-                <button
-                  onClick={handleCheckout}
+                  onClick={handleCheckoutAndPrint}
                   disabled={loading}
                   style={{
-                    flex: 1,
-                    padding: '0.75rem',
+                    width: '100%',
+                    padding: '0.85rem',
                     background: 'var(--color-brand)',
                     color: '#090d16',
                     borderRadius: 'var(--radius-md)',
-                    fontWeight: 800,
-                    fontSize: '0.95rem',
+                    fontWeight: 900,
+                    fontSize: '1rem',
                     gap: '0.5rem',
                     boxShadow: 'var(--shadow-neon-green)',
-                    cursor: 'pointer'
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
                   }}
+                  title="Finaliza el cobro, libera la mesa e imprime el recibo térmico inmediatamente"
                 >
-                  <Check size={18} />
-                  {loading ? 'Liquidando...' : 'Confirmar Cobro y Liberar'}
+                  <Printer size={18} />
+                  {loading ? 'Liquidando...' : 'Cobrar e Imprimir Ticket (1 Clic)'}
                 </button>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '0.5rem' }}>
+                  <button
+                    onClick={handleCheckout}
+                    disabled={loading}
+                    style={{
+                      padding: '0.65rem',
+                      background: 'rgba(255, 255, 255, 0.08)',
+                      color: '#fff',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border-subtle)',
+                      fontWeight: 700,
+                      fontSize: '0.82rem',
+                      gap: '0.4rem',
+                      cursor: 'pointer'
+                    }}
+                    title="Cobra y libera la mesa sin imprimir papel"
+                  >
+                    <Check size={16} />
+                    Solo Cobrar (Sin Ticket)
+                  </button>
+
+                  <button
+                    onClick={handlePrintTicket}
+                    style={{
+                      padding: '0.65rem',
+                      background: 'rgba(251, 191, 36, 0.1)',
+                      color: 'var(--color-gold)',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid rgba(251, 191, 36, 0.3)',
+                      fontWeight: 700,
+                      fontSize: '0.82rem',
+                      gap: '0.4rem',
+                      cursor: 'pointer'
+                    }}
+                    title="Imprime la pre-cuenta para llevar a la mesa antes de que paguen"
+                  >
+                    <FileText size={16} />
+                    Imprimir Pre-Cuenta
+                  </button>
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Right: Thermal Receipt Preview */}
-          <div style={{
-            background: '#ffffff',
-            color: '#111827',
-            padding: '1.25rem',
-            fontFamily: 'monospace',
-            fontSize: '0.76rem',
-            lineHeight: 1.35,
-            overflowY: 'auto',
-            borderLeft: '1px dashed var(--border-subtle)'
-          }}>
+          {/* Right: Thermal Receipt Preview (Ready for 58mm & 80mm ESC/POS Printers) */}
+          <div 
+            id="thermal-pos-ticket"
+            style={{
+              background: '#ffffff',
+              color: '#000000',
+              padding: '1.25rem',
+              fontFamily: 'monospace',
+              fontSize: '0.78rem',
+              lineHeight: 1.35,
+              overflowY: 'auto',
+              borderLeft: '1px dashed var(--border-subtle)',
+              maxWidth: ticketWidth === '58mm' ? '310px' : '390px',
+              transition: 'max-width 0.2s ease'
+            }}
+          >
+            {/* Toolbar for preview & ticket width (hidden during print) */}
+            <div className="no-print" style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              paddingBottom: '0.6rem',
+              marginBottom: '0.6rem',
+              borderBottom: '1px dashed #ccc'
+            }}>
+              <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#666' }}>
+                ANCHO PAPEL:
+              </span>
+              <div style={{ display: 'flex', gap: '3px' }}>
+                <button
+                  type="button"
+                  onClick={() => setTicketWidth('58mm')}
+                  style={{
+                    padding: '2px 6px',
+                    fontSize: '0.68rem',
+                    fontWeight: 800,
+                    borderRadius: '3px',
+                    background: ticketWidth === '58mm' ? '#000' : '#e5e7eb',
+                    color: ticketWidth === '58mm' ? '#fff' : '#374151'
+                  }}
+                >
+                  58mm
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTicketWidth('80mm')}
+                  style={{
+                    padding: '2px 6px',
+                    fontSize: '0.68rem',
+                    fontWeight: 800,
+                    borderRadius: '3px',
+                    background: ticketWidth === '80mm' ? '#000' : '#e5e7eb',
+                    color: ticketWidth === '80mm' ? '#fff' : '#374151'
+                  }}
+                >
+                  80mm
+                </button>
+              </div>
+            </div>
+
             <div style={{ textAlign: 'center', marginBottom: '0.75rem' }}>
-              <div style={{ fontWeight: 900, fontSize: '1.1rem', letterSpacing: '1px' }}>
+              <div style={{ fontWeight: 900, fontSize: '1.15rem', letterSpacing: '1px' }}>
                 {businessSettings.business_name || 'BILLARPULSE CLUB'}
               </div>
-              <div style={{ fontSize: '0.7rem' }}>NIT {businessSettings.business_nit || '901.442.118-0'}</div>
-              <div style={{ fontSize: '0.7rem' }}>{businessSettings.business_address || 'Salón & Bar de Billar'}</div>
+              <div style={{ fontSize: '0.72rem' }}>NIT {businessSettings.business_nit || '901.442.118-0'}</div>
+              <div style={{ fontSize: '0.72rem' }}>{businessSettings.business_address || 'Salón & Bar de Billar'}</div>
               {businessSettings.business_phone && (
-                <div style={{ fontSize: '0.7rem' }}>TEL: {businessSettings.business_phone}</div>
+                <div style={{ fontSize: '0.72rem' }}>TEL: {businessSettings.business_phone}</div>
               )}
               <div>--------------------------------</div>
-              <div style={{ fontWeight: 700 }}>FACTURA DE VENTA #BP-{session.id}</div>
-              <div style={{ fontSize: '0.68rem' }}>FECHA: {new Date().toLocaleDateString('es-CO')} {new Date().toLocaleTimeString('es-CO')}</div>
-              <div style={{ fontWeight: 700 }}>MESA: {table.table_number} ({table.name})</div>
+              <div style={{ fontWeight: 800 }}>FACTURA DE VENTA #BP-{session.id}</div>
+              <div style={{ fontSize: '0.7rem' }}>FECHA: {new Date().toLocaleDateString('es-CO')} {new Date().toLocaleTimeString('es-CO')}</div>
+              <div style={{ fontWeight: 800 }}>MESA: {table.table_number} ({table.name})</div>
               <div>--------------------------------</div>
             </div>
 

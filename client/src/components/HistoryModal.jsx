@@ -397,6 +397,7 @@ export default function HistoryModal({ isOpen, onClose }) {
           }}
         >
           <div
+            id="thermal-pos-ticket"
             onClick={(e) => e.stopPropagation()}
             style={{
               background: '#ffffff',
