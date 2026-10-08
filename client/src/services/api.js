@@ -306,6 +306,11 @@ export const api = {
     return res.json();
   },
 
+  async getNetworkInfo() {
+    const res = await fetch(`${HTTP_BASE}/api/network/info`);
+    return res.json();
+  },
+
   getBackupDownloadUrl() {
     return `${HTTP_BASE}/api/admin/backup/download`;
   }

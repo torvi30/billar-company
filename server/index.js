@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const WebSocket = require('ws');
 const { dbOperations, dbPath } = require('./db');
 
@@ -511,6 +512,37 @@ app.get('/api/admin/backup/download', (req, res) => {
   try {
     const filename = `billarpulse-backup-${new Date().toISOString().slice(0, 10)}.db`;
     res.download(dbPath, filename);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Network LAN IP Info (For automatic QR Code generator)
+app.get('/api/network/info', (req, res) => {
+  try {
+    const nets = os.networkInterfaces();
+    let localIp = 'localhost';
+    const allIps = [];
+
+    for (const name of Object.keys(nets)) {
+      for (const net of nets[name]) {
+        if (net.family === 'IPv4' && !net.internal) {
+          allIps.push({ interface: name, ip: net.address });
+          if (localIp === 'localhost') localIp = net.address;
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        port: PORT,
+        localIp,
+        allIps,
+        hostname: os.hostname(),
+        baseUrl: `http://${localIp}:${PORT}`
+      }
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

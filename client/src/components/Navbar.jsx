@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Wifi, WifiOff, Volume2, LayoutGrid, Tablet, Clock, FileText, Settings, Receipt, TrendingUp } from 'lucide-react';
+import { Wifi, WifiOff, Volume2, LayoutGrid, Tablet, Clock, FileText, Settings, Receipt, TrendingUp, QrCode } from 'lucide-react';
 import { sounds } from '../utils/audio';
 
 export default function Navbar({ 
@@ -13,6 +13,7 @@ export default function Navbar({
   onOpenAdmin,
   onOpenHistory,
   onOpenAnalytics,
+  onOpenConnectDevices,
   onRequestCajaAccess
 }) {
   const [timeStr, setTimeStr] = useState('');
@@ -256,6 +257,29 @@ export default function Navbar({
           <Clock size={15} />
           <span className="mono">{timeStr}</span>
         </div>
+
+        {/* Connect tablets QR button */}
+        <button
+          onClick={onOpenConnectDevices}
+          title="Ver códigos QR para conectar tablets y celulares por Wi-Fi"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.45rem',
+            padding: '0.4rem 0.8rem',
+            borderRadius: 'var(--radius-sm)',
+            background: 'rgba(0, 230, 118, 0.12)',
+            border: '1px solid rgba(0, 230, 118, 0.35)',
+            color: 'var(--color-brand)',
+            fontSize: '0.8rem',
+            fontWeight: 800,
+            cursor: 'pointer',
+            transition: 'all 0.2s'
+          }}
+        >
+          <QrCode size={15} />
+          Conectar Tablets
+        </button>
 
         {/* Connection status */}
         <div style={{

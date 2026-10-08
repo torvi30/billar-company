@@ -7,6 +7,7 @@ import ShiftReportModal from './components/ShiftReportModal';
 import AdminManagementModal from './components/AdminManagementModal';
 import HistoryModal from './components/HistoryModal';
 import AnalyticsModal from './components/AnalyticsModal';
+import ConnectDevicesModal from './components/ConnectDevicesModal';
 import { network, api } from './services/api';
 import { sounds } from './utils/audio';
 
@@ -23,12 +24,13 @@ export default function App() {
   const [stats, setStats] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
 
-  // Security, Report, Admin and Analytics modals
+  // Security, Report, Admin, Analytics and Connect Device modals
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [isShiftReportOpen, setIsShiftReportOpen] = useState(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [isAnalyticsModalOpen, setIsAnalyticsModalOpen] = useState(false);
+  const [isConnectDevicesOpen, setIsConnectDevicesOpen] = useState(false);
 
   // Initial fetch
   const refreshData = useCallback(async () => {
@@ -105,6 +107,7 @@ export default function App() {
         onOpenAdmin={() => setIsAdminModalOpen(true)}
         onOpenHistory={() => setIsHistoryModalOpen(true)}
         onOpenAnalytics={() => setIsAnalyticsModalOpen(true)}
+        onOpenConnectDevices={() => setIsConnectDevicesOpen(true)}
         onRequestCajaAccess={handleRequestCajaAccess}
       />
 
@@ -155,6 +158,13 @@ export default function App() {
       <AnalyticsModal
         isOpen={isAnalyticsModalOpen}
         onClose={() => setIsAnalyticsModalOpen(false)}
+      />
+
+      {/* Connect Tablets & Phones QR Modal */}
+      <ConnectDevicesModal
+        isOpen={isConnectDevicesOpen}
+        onClose={() => setIsConnectDevicesOpen(false)}
+        tables={tablesOverview}
       />
     </div>
   );

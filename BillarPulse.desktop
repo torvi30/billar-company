@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=BillarPulse POS
+Comment=Sistema POS y Marcador Digital de Billar
+Exec=/home/victor/Escritorio/billar-company/iniciar-billarpulse.sh
+Icon=applications-games
+Terminal=false
+Categories=Office;Finance;Game;
+StartupNotify=true
