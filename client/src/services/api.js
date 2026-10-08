@@ -211,8 +211,65 @@ export const api = {
     return res.json();
   },
 
-  async getShiftReport() {
-    const res = await fetch(`${HTTP_BASE}/api/reports/shift`);
+  async getShiftReport(shiftId = null) {
+    const url = shiftId ? `${HTTP_BASE}/api/reports/shift?shiftId=${shiftId}` : `${HTTP_BASE}/api/reports/shift`;
+    const res = await fetch(url);
+    return res.json();
+  },
+
+  async getLowStockProducts() {
+    const res = await fetch(`${HTTP_BASE}/api/inventory/low-stock`);
+    return res.json();
+  },
+
+  async getCurrentShift() {
+    const res = await fetch(`${HTTP_BASE}/api/shifts/current`);
+    return res.json();
+  },
+
+  async openShift(data) {
+    const res = await fetch(`${HTTP_BASE}/api/shifts/open`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    return res.json();
+  },
+
+  async updateShiftInitialCash(id, initial_cash) {
+    const res = await fetch(`${HTTP_BASE}/api/shifts/${id}/initial-cash`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initial_cash })
+    });
+    return res.json();
+  },
+
+  async addCashMovement(data) {
+    const res = await fetch(`${HTTP_BASE}/api/shifts/movements`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    return res.json();
+  },
+
+  async getCashMovements(shiftId) {
+    const res = await fetch(`${HTTP_BASE}/api/shifts/${shiftId}/movements`);
+    return res.json();
+  },
+
+  async closeShift(data) {
+    const res = await fetch(`${HTTP_BASE}/api/shifts/close`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    return res.json();
+  },
+
+  async getClosedShifts(limit = 10) {
+    const res = await fetch(`${HTTP_BASE}/api/shifts/history?limit=${limit}`);
     return res.json();
   },
 

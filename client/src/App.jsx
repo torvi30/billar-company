@@ -23,6 +23,7 @@ export default function App() {
   const [tablesOverview, setTablesOverview] = useState([]);
   const [stats, setStats] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [lowStockCount, setLowStockCount] = useState(0);
 
   // Security, Report, Admin, Analytics and Connect Device modals
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
@@ -35,12 +36,14 @@ export default function App() {
   // Initial fetch
   const refreshData = useCallback(async () => {
     try {
-      const [tablesRes, statsRes] = await Promise.all([
+      const [tablesRes, statsRes, lowStockRes] = await Promise.all([
         api.getTables(),
-        api.getStats()
+        api.getStats(),
+        api.getLowStockProducts()
       ]);
       if (tablesRes.success) setTablesOverview(tablesRes.data);
       if (statsRes.success) setStats(statsRes.data);
+      if (lowStockRes.success) setLowStockCount(lowStockRes.count || (lowStockRes.data ? lowStockRes.data.length : 0));
     } catch (e) {
       console.error('Error fetching initial data:', e);
     }
@@ -109,6 +112,7 @@ export default function App() {
         onOpenAnalytics={() => setIsAnalyticsModalOpen(true)}
         onOpenConnectDevices={() => setIsConnectDevicesOpen(true)}
         onRequestCajaAccess={handleRequestCajaAccess}
+        lowStockCount={lowStockCount}
       />
 
       <main style={{ flex: 1, padding: '1rem' }}>

@@ -90,6 +90,36 @@ function initSchema() {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS cash_shifts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      opened_at TEXT NOT NULL,
+      closed_at TEXT,
+      opened_by TEXT DEFAULT 'Administrador',
+      closed_by TEXT,
+      initial_cash REAL NOT NULL DEFAULT 0.0,
+      expected_cash REAL DEFAULT 0.0,
+      actual_cash REAL,
+      difference REAL DEFAULT 0.0,
+      total_sales REAL DEFAULT 0.0,
+      total_cash_sales REAL DEFAULT 0.0,
+      total_transfer_sales REAL DEFAULT 0.0,
+      total_card_sales REAL DEFAULT 0.0,
+      total_time_revenue REAL DEFAULT 0.0,
+      total_consumption_revenue REAL DEFAULT 0.0,
+      sessions_count INTEGER DEFAULT 0,
+      notes TEXT,
+      status TEXT NOT NULL DEFAULT 'open'
+    );
+
+    CREATE TABLE IF NOT EXISTS cash_movements (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      shift_id INTEGER REFERENCES cash_shifts(id),
+      type TEXT NOT NULL, -- 'in' (ingreso extra) | 'out' (salida / gasto menor)
+      amount REAL NOT NULL,
+      reason TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      created_by TEXT DEFAULT 'Administrador'
+    );
   `);
 
   // Migrations for existing DB if needed
@@ -97,6 +127,7 @@ function initSchema() {
   try { db.exec('ALTER TABLE sessions ADD COLUMN paused_at TEXT;'); } catch(e) {}
   try { db.exec('ALTER TABLE sessions ADD COLUMN accumulated_seconds INTEGER DEFAULT 0;'); } catch(e) {}
   try { db.exec("ALTER TABLE order_items ADD COLUMN assigned_to TEXT DEFAULT 'Mesa';"); } catch(e) {}
+  try { db.exec("ALTER TABLE products ADD COLUMN min_stock INTEGER DEFAULT 10;"); } catch(e) {}
 
   // Default settings
   db.prepare(`
@@ -645,22 +676,31 @@ const dbOperations = {
     return db.prepare('SELECT * FROM products ORDER BY category ASC, name ASC').all();
   },
 
-  createProduct({ name, category, price, stock }) {
+  getLowStockProducts() {
+    return db.prepare(`
+      SELECT * FROM products 
+      WHERE is_active = 1 AND stock <= min_stock 
+      ORDER BY stock ASC, name ASC
+    `).all();
+  },
+
+  createProduct({ name, category, price, stock, min_stock = 10 }) {
     const insert = db.prepare(`
-      INSERT INTO products (name, category, price, stock, is_active)
-      VALUES (?, ?, ?, ?, 1)
+      INSERT INTO products (name, category, price, stock, min_stock, is_active)
+      VALUES (?, ?, ?, ?, ?, 1)
     `);
-    const res = insert.run(name, category, Number(price), Number(stock || 0));
+    const res = insert.run(name, category, Number(price), Number(stock || 0), Number(min_stock || 10));
     return db.prepare('SELECT * FROM products WHERE id = ?').get(res.lastInsertRowid);
   },
 
-  updateProduct(id, { name, category, price, stock, is_active }) {
+  updateProduct(id, { name, category, price, stock, min_stock, is_active }) {
     db.prepare(`
       UPDATE products SET
         name = COALESCE(?, name),
         category = COALESCE(?, category),
         price = COALESCE(?, price),
         stock = COALESCE(?, stock),
+        min_stock = COALESCE(?, min_stock),
         is_active = COALESCE(?, is_active)
       WHERE id = ?
     `).run(
@@ -668,6 +708,7 @@ const dbOperations = {
       category, 
       price != null ? Number(price) : null, 
       stock != null ? Number(stock) : null, 
+      min_stock != null ? Number(min_stock) : null,
       is_active != null ? Number(is_active) : null, 
       id
     );
@@ -928,15 +969,133 @@ const dbOperations = {
     };
   },
 
-  getShiftReport() {
-    const today = new Date().toISOString().slice(0, 10);
+  getCurrentShift() {
+    let current = db.prepare("SELECT * FROM cash_shifts WHERE status = 'open' ORDER BY id DESC LIMIT 1").get();
+    if (!current) {
+      // Auto-create initial open shift for today if none exists
+      const baseSetting = db.prepare("SELECT value FROM settings WHERE key = 'default_initial_cash'").get();
+      const initialCash = baseSetting ? Number(baseSetting.value) : 100000;
+      const now = new Date().toISOString();
+      const ins = db.prepare(`
+        INSERT INTO cash_shifts (opened_at, initial_cash, opened_by, status)
+        VALUES (?, ?, 'Administrador', 'open')
+      `).run(now, initialCash);
+      current = db.prepare('SELECT * FROM cash_shifts WHERE id = ?').get(ins.lastInsertRowid);
+    }
+    return current;
+  },
+
+  openShift({ initial_cash = 100000, opened_by = 'Administrador' }) {
+    // Check if there is an open shift; if so, close it automatically
+    const existing = db.prepare("SELECT * FROM cash_shifts WHERE status = 'open' ORDER BY id DESC LIMIT 1").get();
+    if (existing) {
+      this.closeShift({ shift_id: existing.id, actual_cash: existing.expected_cash || existing.initial_cash, notes: 'Cierre automático para nuevo turno' });
+    }
+
+    const now = new Date().toISOString();
+    const ins = db.prepare(`
+      INSERT INTO cash_shifts (opened_at, initial_cash, opened_by, status)
+      VALUES (?, ?, ?, 'open')
+    `).run(now, Number(initial_cash), opened_by || 'Administrador');
+
+    return db.prepare('SELECT * FROM cash_shifts WHERE id = ?').get(ins.lastInsertRowid);
+  },
+
+  updateShiftInitialCash(shiftId, initialCash) {
+    db.prepare('UPDATE cash_shifts SET initial_cash = ? WHERE id = ?').run(Number(initialCash), shiftId);
+    return db.prepare('SELECT * FROM cash_shifts WHERE id = ?').get(shiftId);
+  },
+
+  addCashMovement({ shift_id, type, amount, reason, created_by = 'Administrador' }) {
+    let targetShiftId = shift_id;
+    if (!targetShiftId) {
+      const cur = this.getCurrentShift();
+      targetShiftId = cur ? cur.id : null;
+    }
+    const now = new Date().toISOString();
+    const ins = db.prepare(`
+      INSERT INTO cash_movements (shift_id, type, amount, reason, created_at, created_by)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(targetShiftId, type, Math.abs(Number(amount)), reason || 'Movimiento de caja menor', now, created_by);
+
+    return db.prepare('SELECT * FROM cash_movements WHERE id = ?').get(ins.lastInsertRowid);
+  },
+
+  getCashMovements(shiftId) {
+    if (!shiftId) return [];
+    return db.prepare('SELECT * FROM cash_movements WHERE shift_id = ? ORDER BY created_at DESC').all(shiftId);
+  },
+
+  closeShift({ shift_id, actual_cash = 0, notes = '', closed_by = 'Administrador' }) {
+    const shift = db.prepare('SELECT * FROM cash_shifts WHERE id = ?').get(shift_id);
+    if (!shift) throw new Error('Turno no encontrado');
+
+    const now = new Date().toISOString();
+    const report = this.getShiftReport(shift_id);
+
+    const expectedCash = report.expectedCash;
+    const difference = Number(actual_cash) - expectedCash;
+
+    db.prepare(`
+      UPDATE cash_shifts SET
+        closed_at = ?,
+        closed_by = ?,
+        expected_cash = ?,
+        actual_cash = ?,
+        difference = ?,
+        total_sales = ?,
+        total_cash_sales = ?,
+        total_transfer_sales = ?,
+        total_card_sales = ?,
+        total_time_revenue = ?,
+        total_consumption_revenue = ?,
+        sessions_count = ?,
+        notes = ?,
+        status = 'closed'
+      WHERE id = ?
+    `).run(
+      now,
+      closed_by,
+      expectedCash,
+      Number(actual_cash),
+      difference,
+      report.grandTotal,
+      report.totalCash,
+      report.totalTransfer,
+      report.totalCard,
+      report.totalTimeRevenue,
+      report.totalConsumptionRevenue,
+      report.sessionCount,
+      notes,
+      shift_id
+    );
+
+    return db.prepare('SELECT * FROM cash_shifts WHERE id = ?').get(shift_id);
+  },
+
+  getClosedShifts(limit = 10) {
+    return db.prepare("SELECT * FROM cash_shifts WHERE status = 'closed' ORDER BY closed_at DESC LIMIT ?").all(limit);
+  },
+
+  getShiftReport(shiftId = null) {
+    let shift = null;
+    if (shiftId) {
+      shift = db.prepare('SELECT * FROM cash_shifts WHERE id = ?').get(shiftId);
+    }
+    if (!shift) {
+      shift = this.getCurrentShift();
+    }
+
+    const startTime = shift ? shift.opened_at : `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`;
+    const endTime = shift && shift.closed_at ? shift.closed_at : new Date().toISOString();
+
     const sessions = db.prepare(`
       SELECT s.*, t.table_number, t.name as table_name
       FROM sessions s
       JOIN tables t ON t.id = s.table_id
-      WHERE s.status = 'closed' AND s.start_time LIKE ?
+      WHERE s.status = 'closed' AND s.end_time >= ? AND s.end_time <= ?
       ORDER BY s.end_time DESC
-    `).all(`${today}%`);
+    `).all(startTime, endTime);
 
     let totalCash = 0;
     let totalTransfer = 0;
@@ -955,17 +1114,29 @@ const dbOperations = {
       const method = (s.payment_method || '').toLowerCase();
       if (method.includes('efectivo')) {
         totalCash += s.total_amount;
-      } else if (method.includes('transferencia') || method.includes('qr') || method.includes('nequi')) {
+      } else if (method.includes('transferencia') || method.includes('qr') || method.includes('nequi') || method.includes('daviplata')) {
         totalTransfer += s.total_amount;
-      } else if (method.includes('tarjeta')) {
+      } else if (method.includes('tarjeta') || method.includes('pos')) {
         totalCard += s.total_amount;
       } else {
-        totalCash += s.total_amount; // fallback
+        totalCash += s.total_amount;
       }
     }
 
+    const movements = shift ? this.getCashMovements(shift.id) : [];
+    let sumMovementsIn = 0;
+    let sumMovementsOut = 0;
+    for (const m of movements) {
+      if (m.type === 'in') sumMovementsIn += m.amount;
+      else if (m.type === 'out') sumMovementsOut += m.amount;
+    }
+
+    const initialCash = shift ? shift.initial_cash : 0;
+    const expectedCash = initialCash + totalCash + sumMovementsIn - sumMovementsOut;
+
     return {
-      date: today,
+      shift,
+      date: shift ? shift.opened_at.slice(0, 10) : new Date().toISOString().slice(0, 10),
       sessionCount: sessions.length,
       grandTotal,
       totalCash,
@@ -974,6 +1145,11 @@ const dbOperations = {
       totalTimeRevenue,
       totalConsumptionRevenue,
       totalMinutes,
+      movements,
+      sumMovementsIn,
+      sumMovementsOut,
+      initialCash,
+      expectedCash,
       sessions
     };
   },

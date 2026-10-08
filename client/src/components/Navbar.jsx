@@ -14,7 +14,8 @@ export default function Navbar({
   onOpenHistory,
   onOpenAnalytics,
   onOpenConnectDevices,
-  onRequestCajaAccess
+  onRequestCajaAccess,
+  lowStockCount = 0
 }) {
   const [timeStr, setTimeStr] = useState('');
 
@@ -133,7 +134,28 @@ export default function Navbar({
 
         {/* Action Buttons if in Caja view */}
         {currentView === 'caja' && (
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            {lowStockCount > 0 && (
+              <button
+                onClick={onOpenAdmin}
+                style={{
+                  padding: '0.45rem 0.85rem',
+                  background: 'rgba(251, 191, 36, 0.15)',
+                  color: 'var(--color-gold)',
+                  border: '1px solid rgba(251, 191, 36, 0.4)',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: '0.8rem',
+                  fontWeight: 800,
+                  gap: '0.4rem',
+                  cursor: 'pointer',
+                  boxShadow: '0 0 12px rgba(251, 191, 36, 0.25)'
+                }}
+                title="Hay productos con stock por debajo de la alerta mínima configurada"
+              >
+                ⚠️ {lowStockCount} Bajo Stock
+              </button>
+            )}
+
             <button
               onClick={onOpenAdmin}
               style={{

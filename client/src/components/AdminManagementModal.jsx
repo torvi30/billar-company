@@ -47,6 +47,8 @@ export default function AdminManagementModal({ isOpen, onClose, onRefreshData })
   const [formCategory, setFormCategory] = useState('Cervezas');
   const [formPrice, setFormPrice] = useState('');
   const [formStock, setFormStock] = useState('');
+  const [formMinStock, setFormMinStock] = useState('10');
+  const [filterLowStockOnly, setFilterLowStockOnly] = useState(false);
 
   // Table editing
   const [editingTableId, setEditingTableId] = useState(null);
@@ -108,10 +110,13 @@ export default function AdminManagementModal({ isOpen, onClose, onRefreshData })
 
   // Categories list
   const categories = ['Todas', ...new Set(products.map(p => p.category))];
+  const lowStockCount = products.filter(p => p.stock <= (p.min_stock != null ? p.min_stock : 10)).length;
+  
   const filteredProducts = products.filter(p => {
     const matchesCategory = selectedCategory === 'Todas' || p.category === selectedCategory;
     const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesCategory && matchesSearch;
+    const matchesLowStock = !filterLowStockOnly || (p.stock <= (p.min_stock != null ? p.min_stock : 10));
+    return matchesCategory && matchesSearch && matchesLowStock;
   });
 
   // Open product form for create or edit
@@ -122,12 +127,14 @@ export default function AdminManagementModal({ isOpen, onClose, onRefreshData })
       setFormCategory(prod.category);
       setFormPrice(String(prod.price));
       setFormStock(String(prod.stock));
+      setFormMinStock(String(prod.min_stock != null ? prod.min_stock : 10));
     } else {
       setEditingProduct(null);
       setFormName('');
       setFormCategory('Cervezas');
       setFormPrice('');
       setFormStock('50');
+      setFormMinStock('10');
     }
     setShowProductForm(true);
   };
@@ -138,20 +145,18 @@ export default function AdminManagementModal({ isOpen, onClose, onRefreshData })
 
     try {
       sounds.playScoreBeep(true);
+      const payload = {
+        name: formName,
+        category: formCategory,
+        price: Number(formPrice),
+        stock: Number(formStock),
+        min_stock: Number(formMinStock || 10)
+      };
+
       if (editingProduct) {
-        await api.updateProduct(editingProduct.id, {
-          name: formName,
-          category: formCategory,
-          price: Number(formPrice),
-          stock: Number(formStock)
-        });
+        await api.updateProduct(editingProduct.id, payload);
       } else {
-        await api.createProduct({
-          name: formName,
-          category: formCategory,
-          price: Number(formPrice),
-          stock: Number(formStock)
-        });
+        await api.createProduct(payload);
       }
       setShowProductForm(false);
       loadData();
@@ -407,6 +412,28 @@ export default function AdminManagementModal({ isOpen, onClose, onRefreshData })
                       <option key={cat} value={cat}>{cat}</option>
                     ))}
                   </select>
+
+                  {/* Low Stock Quick Filter */}
+                  <button
+                    onClick={() => setFilterLowStockOnly(!filterLowStockOnly)}
+                    style={{
+                      background: filterLowStockOnly ? 'var(--color-gold)' : 'rgba(251, 191, 36, 0.1)',
+                      color: filterLowStockOnly ? '#090d16' : 'var(--color-gold)',
+                      border: `1px solid ${filterLowStockOnly ? 'var(--color-gold)' : 'rgba(251, 191, 36, 0.3)'}`,
+                      borderRadius: 'var(--radius-sm)',
+                      padding: '0.55rem 0.9rem',
+                      fontSize: '0.82rem',
+                      fontWeight: 700,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.4rem',
+                      cursor: 'pointer'
+                    }}
+                    title="Filtrar productos con stock en alerta o agotados"
+                  >
+                    <AlertCircle size={15} />
+                    Bajo Stock ({lowStockCount})
+                  </button>
                 </div>
 
                 <button
@@ -440,25 +467,33 @@ export default function AdminManagementModal({ isOpen, onClose, onRefreshData })
                       <th style={{ padding: '0.75rem 1rem' }}>Categoría</th>
                       <th style={{ padding: '0.75rem 1rem' }}>Precio de Venta</th>
                       <th style={{ padding: '0.75rem 1rem' }}>Stock Actual</th>
+                      <th style={{ padding: '0.75rem 1rem' }}>Alerta Mínima</th>
                       <th style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>Reponer Stock</th>
                       <th style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredProducts.map(p => {
-                      const isLowStock = p.stock <= 10;
+                      const threshold = p.min_stock != null ? p.min_stock : 10;
                       const isOutStock = p.stock <= 0;
+                      const isLowStock = p.stock <= threshold && !isOutStock;
                       return (
                         <tr
                           key={p.id}
                           style={{
                             borderBottom: '1px solid rgba(255, 255, 255, 0.04)',
-                            background: 'rgba(10, 14, 22, 0.3)',
+                            background: isOutStock 
+                              ? 'rgba(244, 63, 94, 0.05)' 
+                              : isLowStock ? 'rgba(251, 191, 36, 0.05)' : 'rgba(10, 14, 22, 0.3)',
                             opacity: p.is_active ? 1 : 0.5
                           }}
                         >
                           <td style={{ padding: '0.75rem 1rem', fontWeight: 700, color: '#fff' }}>
-                            {p.name}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              {isOutStock && <span style={{ color: 'var(--color-alert)', fontSize: '0.75rem' }}>⛔</span>}
+                              {isLowStock && <span style={{ color: 'var(--color-gold)', fontSize: '0.75rem' }}>⚠️</span>}
+                              <span>{p.name}</span>
+                            </div>
                           </td>
                           <td style={{ padding: '0.75rem 1rem', color: 'var(--text-secondary)' }}>
                             <span style={{
@@ -487,8 +522,11 @@ export default function AdminManagementModal({ isOpen, onClose, onRefreshData })
                                 ? 'var(--color-alert)' 
                                 : isLowStock ? 'var(--color-gold)' : 'var(--color-brand)'
                             }}>
-                              {p.stock} unid.
+                              {isOutStock ? '0 unid. (Agotado)' : isLowStock ? `¡Solo ${p.stock}! (Bajo)` : `${p.stock} unid.`}
                             </span>
+                          </td>
+                          <td className="mono" style={{ padding: '0.75rem 1rem', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                            Avisar si ≤ {threshold}
                           </td>
 
                           {/* Quick Stock Replenishment Buttons */}
@@ -506,7 +544,8 @@ export default function AdminManagementModal({ isOpen, onClose, onRefreshData })
                                     color: 'var(--color-brand)',
                                     fontSize: '0.75rem',
                                     fontWeight: 700,
-                                    border: '1px solid var(--border-subtle)'
+                                    border: '1px solid var(--border-subtle)',
+                                    cursor: 'pointer'
                                   }}
                                 >
                                   +{qty}
@@ -1280,26 +1319,54 @@ export default function AdminManagementModal({ isOpen, onClose, onRefreshData })
                 </div>
               </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                  STOCK / CANTIDAD DISPONIBLE
-                </label>
-                <input
-                  type="number"
-                  required
-                  placeholder="50"
-                  value={formStock}
-                  onChange={(e) => setFormStock(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '0.6rem',
-                    background: 'var(--bg-surface)',
-                    border: '1px solid var(--border-subtle)',
-                    borderRadius: 'var(--radius-sm)',
-                    color: '#fff',
-                    fontSize: '0.9rem'
-                  }}
-                />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                    STOCK ACTUAL
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    placeholder="50"
+                    value={formStock}
+                    onChange={(e) => setFormStock(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '0.6rem',
+                      background: 'var(--bg-surface)',
+                      border: '1px solid var(--border-subtle)',
+                      borderRadius: 'var(--radius-sm)',
+                      color: '#fff',
+                      fontSize: '0.9rem'
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: 'var(--color-gold)', marginBottom: '4px' }}>
+                    ⚠️ ALERTA STOCK MÍNIMO
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    placeholder="10"
+                    value={formMinStock}
+                    onChange={(e) => setFormMinStock(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '0.6rem',
+                      background: 'var(--bg-surface)',
+                      border: '1px solid rgba(251, 191, 36, 0.4)',
+                      borderRadius: 'var(--radius-sm)',
+                      color: 'var(--color-gold)',
+                      fontSize: '0.9rem',
+                      fontWeight: 700
+                    }}
+                  />
+                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                    Avisar cuando queden esta cantidad o menos
+                  </span>
+                </div>
               </div>
 
               <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>

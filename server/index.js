@@ -436,10 +436,88 @@ app.get('/api/stats', (req, res) => {
   }
 });
 
+// Inventory: low stock items
+app.get('/api/inventory/low-stock', (req, res) => {
+  try {
+    const data = dbOperations.getLowStockProducts();
+    res.json({ success: true, data, count: data.length });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Cash Shifts management
+app.get('/api/shifts/current', (req, res) => {
+  try {
+    const shift = dbOperations.getCurrentShift();
+    res.json({ success: true, data: shift });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/shifts/open', (req, res) => {
+  try {
+    const shift = dbOperations.openShift(req.body);
+    broadcastTableUpdate(null);
+    res.json({ success: true, data: shift });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.put('/api/shifts/:id/initial-cash', (req, res) => {
+  try {
+    const { initial_cash } = req.body;
+    const shift = dbOperations.updateShiftInitialCash(Number(req.params.id), initial_cash);
+    res.json({ success: true, data: shift });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/shifts/movements', (req, res) => {
+  try {
+    const movement = dbOperations.addCashMovement(req.body);
+    res.json({ success: true, data: movement });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/shifts/:id/movements', (req, res) => {
+  try {
+    const movements = dbOperations.getCashMovements(Number(req.params.id));
+    res.json({ success: true, data: movements });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/shifts/close', (req, res) => {
+  try {
+    const closed = dbOperations.closeShift(req.body);
+    broadcastTableUpdate(null);
+    res.json({ success: true, data: closed });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/shifts/history', (req, res) => {
+  try {
+    const history = dbOperations.getClosedShifts(Number(req.query.limit) || 10);
+    res.json({ success: true, data: history });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Shift / Arqueo report
 app.get('/api/reports/shift', (req, res) => {
   try {
-    const report = dbOperations.getShiftReport();
+    const shiftId = req.query.shiftId ? Number(req.query.shiftId) : null;
+    const report = dbOperations.getShiftReport(shiftId);
     res.json({ success: true, data: report });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

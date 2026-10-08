@@ -50,6 +50,19 @@ export default function SpeedPOSModal({ table, isOpen, onClose, onSuccess }) {
     : activeTarget;
 
   const updateQuantity = (productId, target, delta) => {
+    const prod = products.find(p => p.id === productId);
+    if (delta > 0 && prod) {
+      const currentInCart = Object.values(cart)
+        .filter(entry => entry.productId === productId)
+        .reduce((sum, entry) => sum + entry.quantity, 0);
+
+      if (currentInCart + delta > prod.stock) {
+        sounds.playScoreBeep(false);
+        alert(`⚠️ Stock insuficiente: solo quedan ${prod.stock} unidades disponibles de "${prod.name}"`);
+        return;
+      }
+    }
+
     sounds.playScoreBeep(delta > 0);
     const key = `${productId}_${target}`;
     setCart(prev => {
@@ -353,6 +366,10 @@ export default function SpeedPOSModal({ table, isOpen, onClose, onSuccess }) {
               gap: '0.75rem'
             }}>
               {filteredProducts.map(p => {
+                const threshold = p.min_stock != null ? p.min_stock : 10;
+                const isOutStock = p.stock <= 0;
+                const isLowStock = p.stock <= threshold && !isOutStock;
+
                 // Calculate total in cart for this product across all targets
                 const inCartTotal = cartEntries
                   .filter(e => e.product.id === p.id)
@@ -361,18 +378,36 @@ export default function SpeedPOSModal({ table, isOpen, onClose, onSuccess }) {
                 return (
                   <div
                     key={p.id}
-                    onClick={() => updateQuantity(p.id, currentEffectiveTarget, 1)}
+                    onClick={() => {
+                      if (isOutStock) {
+                        sounds.playScoreBeep(false);
+                        alert(`El producto "${p.name}" se encuentra agotado.`);
+                        return;
+                      }
+                      updateQuantity(p.id, currentEffectiveTarget, 1);
+                    }}
                     style={{
-                      background: inCartTotal > 0 ? 'rgba(0, 230, 118, 0.08)' : 'var(--bg-surface)',
-                      border: `1px solid ${inCartTotal > 0 ? 'var(--color-brand)' : 'var(--border-subtle)'}`,
+                      background: inCartTotal > 0 
+                        ? 'rgba(0, 230, 118, 0.08)' 
+                        : isOutStock 
+                        ? 'rgba(244, 63, 94, 0.05)' 
+                        : isLowStock ? 'rgba(251, 191, 36, 0.04)' : 'var(--bg-surface)',
+                      border: `1px solid ${
+                        inCartTotal > 0 
+                          ? 'var(--color-brand)' 
+                          : isOutStock 
+                          ? 'rgba(244, 63, 94, 0.3)' 
+                          : isLowStock ? 'rgba(251, 191, 36, 0.4)' : 'var(--border-subtle)'
+                      }`,
                       borderRadius: 'var(--radius-md)',
                       padding: '0.85rem',
-                      cursor: 'pointer',
+                      cursor: isOutStock ? 'not-allowed' : 'pointer',
                       display: 'flex',
                       flexDirection: 'column',
                       justifyContent: 'space-between',
-                      minHeight: '100px',
+                      minHeight: '110px',
                       position: 'relative',
+                      opacity: isOutStock ? 0.6 : 1,
                       transition: 'transform 0.1s, border-color 0.1s'
                     }}
                   >
@@ -391,19 +426,40 @@ export default function SpeedPOSModal({ table, isOpen, onClose, onSuccess }) {
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        boxShadow: '0 2px 8px rgba(0,0,0,0.4)'
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
+                        zIndex: 2
                       }}>
                         {inCartTotal}
                       </span>
                     )}
+
                     <div>
-                      <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
-                        {p.category}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
+                          {p.category}
+                        </span>
+                        {/* Stock indicator badge */}
+                        <span style={{
+                          fontSize: '0.68rem',
+                          fontWeight: 800,
+                          padding: '1px 5px',
+                          borderRadius: '4px',
+                          background: isOutStock 
+                            ? 'rgba(244, 63, 94, 0.2)' 
+                            : isLowStock ? 'rgba(251, 191, 36, 0.2)' : 'rgba(255, 255, 255, 0.06)',
+                          color: isOutStock 
+                            ? 'var(--color-alert)' 
+                            : isLowStock ? 'var(--color-gold)' : 'var(--text-secondary)'
+                        }}>
+                          {isOutStock ? '⛔ Agotado' : isLowStock ? `⚠️ Quedan ${p.stock}` : `${p.stock} disp.`}
+                        </span>
                       </div>
-                      <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#fff', marginTop: '2px', lineHeight: 1.2 }}>
+
+                      <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#fff', marginTop: '4px', lineHeight: 1.2 }}>
                         {p.name}
                       </div>
                     </div>
+
                     <div className="mono" style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--color-gold)', marginTop: '0.5rem' }}>
                       {formatCurrency(p.price)}
                     </div>
