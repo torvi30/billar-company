@@ -120,6 +120,16 @@ function initSchema() {
       created_at TEXT NOT NULL,
       created_by TEXT DEFAULT 'Administrador'
     );
+
+    CREATE TABLE IF NOT EXISTS staff (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      pin TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'mesero', -- 'admin' | 'cajero' | 'mesero'
+      phone TEXT,
+      is_active INTEGER DEFAULT 1,
+      created_at TEXT NOT NULL
+    );
   `);
 
   // Migrations for existing DB if needed
@@ -128,6 +138,21 @@ function initSchema() {
   try { db.exec('ALTER TABLE sessions ADD COLUMN accumulated_seconds INTEGER DEFAULT 0;'); } catch(e) {}
   try { db.exec("ALTER TABLE order_items ADD COLUMN assigned_to TEXT DEFAULT 'Mesa';"); } catch(e) {}
   try { db.exec("ALTER TABLE products ADD COLUMN min_stock INTEGER DEFAULT 10;"); } catch(e) {}
+  try { db.exec("ALTER TABLE orders ADD COLUMN waiter_name TEXT DEFAULT 'Caja';"); } catch(e) {}
+  try { db.exec("ALTER TABLE orders ADD COLUMN waiter_id INTEGER;"); } catch(e) {}
+
+  // Seed default staff if empty
+  const staffCount = db.prepare('SELECT COUNT(*) as count FROM staff').get().count;
+  if (staffCount === 0) {
+    const insertStaff = db.prepare(`
+      INSERT INTO staff (name, pin, role, phone, is_active, created_at)
+      VALUES (?, ?, ?, ?, 1, ?)
+    `);
+    const now = new Date().toISOString();
+    insertStaff.run('Administrador', '1234', 'admin', '300 123 4567', now);
+    insertStaff.run('Andrea Gómez', '1111', 'mesero', '310 987 6543', now);
+    insertStaff.run('Carlos Ruiz', '2222', 'mesero', '320 555 7788', now);
+  }
 
   // Default settings
   db.prepare(`
@@ -460,7 +485,7 @@ const dbOperations = {
     };
   },
 
-  addOrder(sessionId, items, defaultAssignedTo = 'Mesa') {
+  addOrder(sessionId, items, defaultAssignedTo = 'Mesa', waiterName = 'Caja', waiterId = null) {
     // items: [{ productId, quantity, assignedTo? }]
     const session = db.prepare('SELECT * FROM sessions WHERE id = ? AND status = \'active\'').get(sessionId);
     if (!session) throw new Error('Sesión no encontrada o no activa');
@@ -485,10 +510,10 @@ const dbOperations = {
 
     const now = new Date().toISOString();
     const insertOrder = db.prepare(`
-      INSERT INTO orders (session_id, created_at, total)
-      VALUES (?, ?, ?)
+      INSERT INTO orders (session_id, created_at, total, waiter_name, waiter_id)
+      VALUES (?, ?, ?, ?, ?)
     `);
-    const orderRes = insertOrder.run(sessionId, now, totalOrder);
+    const orderRes = insertOrder.run(sessionId, now, totalOrder, waiterName || 'Caja', waiterId || null);
     const orderId = orderRes.lastInsertRowid;
 
     const insertItem = db.prepare(`
@@ -1175,6 +1200,109 @@ const dbOperations = {
   updateSetting(key, value) {
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(key, String(value));
     return { key, value };
+  },
+
+  // Staff / Waiters Management
+  getStaff(onlyActive = true) {
+    if (onlyActive) {
+      return db.prepare("SELECT id, name, role, phone, is_active, created_at FROM staff WHERE is_active = 1 ORDER BY name ASC").all();
+    }
+    return db.prepare("SELECT id, name, pin, role, phone, is_active, created_at FROM staff ORDER BY id ASC").all();
+  },
+
+  getAllStaff() {
+    return db.prepare("SELECT id, name, pin, role, phone, is_active, created_at FROM staff ORDER BY id ASC").all();
+  },
+
+  createStaff({ name, pin, role = 'mesero', phone = '' }) {
+    if (!name || !pin) throw new Error('Nombre y PIN son obligatorios');
+    const now = new Date().toISOString();
+    const ins = db.prepare(`
+      INSERT INTO staff (name, pin, role, phone, is_active, created_at)
+      VALUES (?, ?, ?, ?, 1, ?)
+    `).run(name.trim(), String(pin).trim(), role || 'mesero', phone || '', now);
+
+    return db.prepare("SELECT id, name, role, phone, is_active, created_at FROM staff WHERE id = ?").get(ins.lastInsertRowid);
+  },
+
+  updateStaff(id, { name, pin, role, phone, is_active }) {
+    db.prepare(`
+      UPDATE staff SET
+        name = COALESCE(?, name),
+        pin = COALESCE(?, pin),
+        role = COALESCE(?, role),
+        phone = COALESCE(?, phone),
+        is_active = COALESCE(?, is_active)
+      WHERE id = ?
+    `).run(
+      name ? name.trim() : null,
+      pin ? String(pin).trim() : null,
+      role || null,
+      phone != null ? phone : null,
+      is_active != null ? Number(is_active) : null,
+      id
+    );
+
+    return db.prepare("SELECT id, name, pin, role, phone, is_active, created_at FROM staff WHERE id = ?").get(id);
+  },
+
+  deleteStaff(id) {
+    db.prepare("UPDATE staff SET is_active = 0 WHERE id = ?").run(id);
+    return { success: true, id };
+  },
+
+  authenticateStaff(pin, staffId = null) {
+    const cleanPin = String(pin).trim();
+    let member = null;
+    if (staffId) {
+      member = db.prepare("SELECT id, name, role, phone, is_active FROM staff WHERE id = ? AND pin = ? AND is_active = 1").get(staffId, cleanPin);
+    } else {
+      member = db.prepare("SELECT id, name, role, phone, is_active FROM staff WHERE pin = ? AND is_active = 1").get(cleanPin);
+    }
+
+    if (!member) {
+      // Fallback: check master admin_pin
+      const adminSetting = db.prepare("SELECT value FROM settings WHERE key = 'admin_pin'").get();
+      if (adminSetting && cleanPin === adminSetting.value) {
+        return {
+          id: 0,
+          name: 'Administrador Maestro',
+          role: 'admin',
+          phone: '',
+          is_active: 1
+        };
+      }
+      return null;
+    }
+
+    return member;
+  },
+
+  getWaitersSalesReport(range = 'today') {
+    let dateFilter = '';
+    if (range === 'today') {
+      dateFilter = "AND date(o.created_at) = date('now')";
+    } else if (range === 'week') {
+      dateFilter = "AND date(o.created_at) >= date('now', '-6 days')";
+    } else if (range === 'month') {
+      dateFilter = "AND date(o.created_at) >= date('now', 'start of month')";
+    }
+
+    const rows = db.prepare(`
+      SELECT 
+        COALESCE(o.waiter_name, 'Caja') as waiter_name,
+        COALESCE(o.waiter_id, 0) as waiter_id,
+        COUNT(DISTINCT o.id) as orders_count,
+        COALESCE(SUM(o.total), 0) as total_sales,
+        COALESCE(SUM(oi.quantity), 0) as total_items
+      FROM orders o
+      LEFT JOIN order_items oi ON oi.order_id = o.id
+      WHERE 1=1 ${dateFilter}
+      GROUP BY COALESCE(o.waiter_name, 'Caja')
+      ORDER BY total_sales DESC
+    `).all();
+
+    return rows;
   }
 };
 

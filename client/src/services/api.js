@@ -153,11 +153,11 @@ export const api = {
     return res.json();
   },
 
-  async addOrder(sessionId, items, assignedTo = 'Mesa') {
+  async addOrder(sessionId, items, assignedTo = 'Mesa', waiterName = 'Caja', waiterId = null) {
     const res = await fetch(`${HTTP_BASE}/api/orders`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId, items, assignedTo })
+      body: JSON.stringify({ sessionId, items, assignedTo, waiterName, waiterId })
     });
     return res.json();
   },
@@ -370,5 +370,54 @@ export const api = {
 
   getBackupDownloadUrl() {
     return `${HTTP_BASE}/api/admin/backup/download`;
+  },
+
+  async getStaff() {
+    const res = await fetch(`${HTTP_BASE}/api/staff`);
+    return res.json();
+  },
+
+  async getAdminStaff() {
+    const res = await fetch(`${HTTP_BASE}/api/admin/staff`);
+    return res.json();
+  },
+
+  async createStaff(data) {
+    const res = await fetch(`${HTTP_BASE}/api/staff`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    return res.json();
+  },
+
+  async updateStaff(id, data) {
+    const res = await fetch(`${HTTP_BASE}/api/staff/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    return res.json();
+  },
+
+  async deleteStaff(id) {
+    const res = await fetch(`${HTTP_BASE}/api/staff/${id}`, {
+      method: 'DELETE'
+    });
+    return res.json();
+  },
+
+  async staffLogin(pin, staffId = null) {
+    const res = await fetch(`${HTTP_BASE}/api/auth/staff-login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin, staffId })
+    });
+    return res.json();
+  },
+
+  async getWaiterSales(range = 'today') {
+    const res = await fetch(`${HTTP_BASE}/api/reports/waiters?range=${range}`);
+    return res.json();
   }
 };

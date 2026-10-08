@@ -277,11 +277,11 @@ app.post('/api/settings', (req, res) => {
 // Add order / consumptions
 app.post('/api/orders', (req, res) => {
   try {
-    const { sessionId, items, assignedTo } = req.body;
+    const { sessionId, items, assignedTo, waiterName, waiterId } = req.body;
     if (!sessionId || !items || !items.length) {
       return res.status(400).json({ success: false, error: 'sessionId e items requeridos' });
     }
-    const result = dbOperations.addOrder(Number(sessionId), items, assignedTo || 'Mesa');
+    const result = dbOperations.addOrder(Number(sessionId), items, assignedTo || 'Mesa', waiterName || 'Caja', waiterId || null);
     broadcastTableUpdate(result.tableId);
     res.json({ success: true, data: result });
   } catch (err) {
@@ -571,6 +571,76 @@ app.post('/api/auth/update-pin', (req, res) => {
     res.json({ success: true, message: 'PIN actualizado exitosamente' });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Staff / Waiters Endpoints
+app.get('/api/staff', (req, res) => {
+  try {
+    const staff = dbOperations.getStaff(true);
+    res.json({ success: true, data: staff });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/admin/staff', (req, res) => {
+  try {
+    const staff = dbOperations.getAllStaff();
+    res.json({ success: true, data: staff });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/staff', (req, res) => {
+  try {
+    const member = dbOperations.createStaff(req.body);
+    res.json({ success: true, data: member });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.put('/api/staff/:id', (req, res) => {
+  try {
+    const member = dbOperations.updateStaff(Number(req.params.id), req.body);
+    res.json({ success: true, data: member });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.delete('/api/staff/:id', (req, res) => {
+  try {
+    const result = dbOperations.deleteStaff(Number(req.params.id));
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Fast PIN login for staff
+app.post('/api/auth/staff-login', (req, res) => {
+  try {
+    const { pin, staffId } = req.body;
+    const user = dbOperations.authenticateStaff(pin, staffId ? Number(staffId) : null);
+    if (!user) {
+      return res.status(401).json({ success: false, error: 'PIN incorrecto o mesero no encontrado' });
+    }
+    res.json({ success: true, data: user });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Sales report by waiter
+app.get('/api/reports/waiters', (req, res) => {
+  try {
+    const report = dbOperations.getWaitersSalesReport(req.query.range || 'today');
+    res.json({ success: true, data: report });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

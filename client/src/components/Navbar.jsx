@@ -15,9 +15,12 @@ export default function Navbar({
   onOpenAnalytics,
   onOpenConnectDevices,
   onRequestCajaAccess,
-  lowStockCount = 0
+  lowStockCount = 0,
+  currentStaff = null,
+  onOpenStaffLogin = () => {}
 }) {
   const [timeStr, setTimeStr] = useState('');
+  const isWaiter = currentStaff?.role === 'mesero';
 
   useEffect(() => {
     const update = () => {
@@ -135,7 +138,7 @@ export default function Navbar({
         {/* Action Buttons if in Caja view */}
         {currentView === 'caja' && (
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-            {lowStockCount > 0 && (
+            {!isWaiter && lowStockCount > 0 && (
               <button
                 onClick={onOpenAdmin}
                 style={{
@@ -156,41 +159,45 @@ export default function Navbar({
               </button>
             )}
 
-            <button
-              onClick={onOpenAdmin}
-              style={{
-                padding: '0.5rem 0.85rem',
-                background: 'rgba(255, 255, 255, 0.08)',
-                color: '#fff',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: 'var(--radius-sm)',
-                fontSize: '0.85rem',
-                fontWeight: 700,
-                gap: '0.4rem',
-                cursor: 'pointer'
-              }}
-            >
-              <Settings size={15} color="var(--color-blue)" />
-              Administración
-            </button>
+            {!isWaiter && (
+              <button
+                onClick={onOpenAdmin}
+                style={{
+                  padding: '0.5rem 0.85rem',
+                  background: 'rgba(255, 255, 255, 0.08)',
+                  color: '#fff',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: '0.85rem',
+                  fontWeight: 700,
+                  gap: '0.4rem',
+                  cursor: 'pointer'
+                }}
+              >
+                <Settings size={15} color="var(--color-blue)" />
+                Administración
+              </button>
+            )}
 
-            <button
-              onClick={onOpenAnalytics}
-              style={{
-                padding: '0.5rem 0.85rem',
-                background: 'rgba(255, 255, 255, 0.08)',
-                color: '#fff',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: 'var(--radius-sm)',
-                fontSize: '0.85rem',
-                fontWeight: 700,
-                gap: '0.4rem',
-                cursor: 'pointer'
-              }}
-            >
-              <TrendingUp size={15} color="var(--color-brand)" />
-              Estadísticas
-            </button>
+            {!isWaiter && (
+              <button
+                onClick={onOpenAnalytics}
+                style={{
+                  padding: '0.5rem 0.85rem',
+                  background: 'rgba(255, 255, 255, 0.08)',
+                  color: '#fff',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: '0.85rem',
+                  fontWeight: 700,
+                  gap: '0.4rem',
+                  cursor: 'pointer'
+                }}
+              >
+                <TrendingUp size={15} color="var(--color-brand)" />
+                Estadísticas
+              </button>
+            )}
 
             <button
               onClick={onOpenHistory}
@@ -210,23 +217,25 @@ export default function Navbar({
               Historial
             </button>
 
-            <button
-              onClick={onOpenShiftReport}
-              style={{
-                padding: '0.5rem 0.85rem',
-                background: 'rgba(255, 255, 255, 0.08)',
-                color: '#fff',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: 'var(--radius-sm)',
-                fontSize: '0.85rem',
-                fontWeight: 700,
-                gap: '0.4rem',
-                cursor: 'pointer'
-              }}
-            >
-              <FileText size={15} color="var(--color-gold)" />
-              Arqueo de Turno
-            </button>
+            {!isWaiter && (
+              <button
+                onClick={onOpenShiftReport}
+                style={{
+                  padding: '0.5rem 0.85rem',
+                  background: 'rgba(255, 255, 255, 0.08)',
+                  color: '#fff',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: '0.85rem',
+                  fontWeight: 700,
+                  gap: '0.4rem',
+                  cursor: 'pointer'
+                }}
+              >
+                <FileText size={15} color="var(--color-gold)" />
+                Arqueo de Turno
+              </button>
+            )}
           </div>
         )}
 
@@ -257,7 +266,7 @@ export default function Navbar({
       </div>
 
       {/* Status & Clock */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
         {/* Sound Test trigger */}
         <button
           onClick={() => sounds.playWaiterBell()}
@@ -279,6 +288,54 @@ export default function Navbar({
           <Clock size={15} />
           <span className="mono">{timeStr}</span>
         </div>
+
+        {/* Active Staff / Mesero Switch Button */}
+        <button
+          onClick={onOpenStaffLogin}
+          title="Cambiar de mesero o iniciar sesión con PIN"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.45rem',
+            padding: '0.35rem 0.75rem',
+            borderRadius: 'var(--radius-full)',
+            background: currentStaff?.role === 'admin'
+              ? 'rgba(251, 191, 36, 0.15)'
+              : currentStaff?.role === 'cajero'
+              ? 'rgba(59, 130, 246, 0.15)'
+              : 'rgba(16, 185, 129, 0.15)',
+            border: `1px solid ${
+              currentStaff?.role === 'admin'
+                ? 'rgba(251, 191, 36, 0.4)'
+                : currentStaff?.role === 'cajero'
+                ? 'rgba(59, 130, 246, 0.4)'
+                : 'rgba(16, 185, 129, 0.4)'
+            }`,
+            color: currentStaff?.role === 'admin' ? 'var(--color-gold)' : '#fff',
+            fontSize: '0.8rem',
+            fontWeight: 800,
+            cursor: 'pointer',
+            transition: 'all 0.2s',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
+          }}
+        >
+          <span style={{ fontSize: '0.88rem' }}>
+            {currentStaff?.role === 'admin' ? '👑' : currentStaff?.role === 'cajero' ? '💼' : '🍸'}
+          </span>
+          <span style={{ maxWidth: '120px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {currentStaff ? currentStaff.name : 'Personal'}
+          </span>
+          <span style={{
+            fontSize: '0.68rem',
+            color: 'var(--text-muted)',
+            fontWeight: 600,
+            background: 'rgba(0,0,0,0.25)',
+            padding: '1px 5px',
+            borderRadius: '4px'
+          }}>
+            PIN
+          </span>
+        </button>
 
         {/* Connect tablets QR button */}
         <button

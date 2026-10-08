@@ -8,6 +8,7 @@ import AdminManagementModal from './components/AdminManagementModal';
 import HistoryModal from './components/HistoryModal';
 import AnalyticsModal from './components/AnalyticsModal';
 import ConnectDevicesModal from './components/ConnectDevicesModal';
+import StaffLoginModal from './components/StaffLoginModal';
 import { network, api } from './services/api';
 import { sounds } from './utils/audio';
 
@@ -24,6 +25,17 @@ export default function App() {
   const [stats, setStats] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
   const [lowStockCount, setLowStockCount] = useState(0);
+
+  // Staff / Mesero authentication state
+  const [currentStaff, setCurrentStaff] = useState(() => {
+    try {
+      const saved = localStorage.getItem('billarpulse_user');
+      return saved ? JSON.parse(saved) : { id: 1, name: 'Administrador', role: 'admin' };
+    } catch {
+      return { id: 1, name: 'Administrador', role: 'admin' };
+    }
+  });
+  const [isStaffLoginOpen, setIsStaffLoginOpen] = useState(false);
 
   // Security, Report, Admin, Analytics and Connect Device modals
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
@@ -97,6 +109,12 @@ export default function App() {
     setView('caja');
   };
 
+  const handleStaffLoginSuccess = (staff) => {
+    setCurrentStaff(staff);
+    localStorage.setItem('billarpulse_user', JSON.stringify(staff));
+    setIsStaffLoginOpen(false);
+  };
+
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <Navbar
@@ -113,6 +131,8 @@ export default function App() {
         onOpenConnectDevices={() => setIsConnectDevicesOpen(true)}
         onRequestCajaAccess={handleRequestCajaAccess}
         lowStockCount={lowStockCount}
+        currentStaff={currentStaff}
+        onOpenStaffLogin={() => setIsStaffLoginOpen(true)}
       />
 
       <main style={{ flex: 1, padding: '1rem' }}>
@@ -122,6 +142,7 @@ export default function App() {
             stats={stats}
             onStateChange={refreshData}
             onSelectTableForKiosk={handleSelectTableForKiosk}
+            currentStaff={currentStaff}
           />
         ) : (
           <TableKiosk
@@ -131,6 +152,14 @@ export default function App() {
           />
         )}
       </main>
+
+      {/* Staff / Waiter Login Modal */}
+      <StaffLoginModal
+        isOpen={isStaffLoginOpen}
+        onClose={() => setIsStaffLoginOpen(false)}
+        onLoginSuccess={handleStaffLoginSuccess}
+        currentStaff={currentStaff}
+      />
 
       {/* Security PIN Modal */}
       <PinModal

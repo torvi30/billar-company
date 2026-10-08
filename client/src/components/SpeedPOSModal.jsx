@@ -4,7 +4,7 @@ import { formatCurrency } from '../utils/formatters';
 import { sounds } from '../utils/audio';
 import { api } from '../services/api';
 
-export default function SpeedPOSModal({ table, isOpen, onClose, onSuccess }) {
+export default function SpeedPOSModal({ table, isOpen, onClose, onSuccess, currentStaff = null }) {
   const [products, setProducts] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('Todas');
   const [activeTarget, setActiveTarget] = useState('Mesa');
@@ -111,7 +111,27 @@ export default function SpeedPOSModal({ table, isOpen, onClose, onSuccess }) {
         quantity: i.quantity,
         assignedTo: i.target
       }));
-      await api.addOrder(table.current_session.id, payload, activeTarget);
+
+      // Determine active waiter
+      let activeWaiterName = currentStaff?.name;
+      let activeWaiterId = currentStaff?.id;
+      if (!activeWaiterName) {
+        try {
+          const stored = JSON.parse(localStorage.getItem('billarpulse_user') || '{}');
+          if (stored.name) {
+            activeWaiterName = stored.name;
+            activeWaiterId = stored.id;
+          }
+        } catch (e) {}
+      }
+
+      await api.addOrder(
+        table.current_session.id, 
+        payload, 
+        activeTarget, 
+        activeWaiterName || 'Caja', 
+        activeWaiterId || null
+      );
       onSuccess();
       onClose();
     } catch (e) {

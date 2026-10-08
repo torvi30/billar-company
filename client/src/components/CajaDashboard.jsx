@@ -25,7 +25,7 @@ import TransferTableModal from './TransferTableModal';
 import TablePreviewModal from './TablePreviewModal';
 import OpenBarTabModal from './OpenBarTabModal';
 
-export default function CajaDashboard({ tablesOverview, stats, onStateChange, onSelectTableForKiosk }) {
+export default function CajaDashboard({ tablesOverview, stats, onStateChange, onSelectTableForKiosk, currentStaff = null }) {
   const [selectedTableForPOS, setSelectedTableForPOS] = useState(null);
   const [selectedTableForCheckout, setSelectedTableForCheckout] = useState(null);
   const [selectedTableForTransfer, setSelectedTableForTransfer] = useState(null);
@@ -909,6 +909,7 @@ export default function CajaDashboard({ tablesOverview, stats, onStateChange, on
         table={selectedTableForPOS}
         isOpen={!!selectedTableForPOS}
         onClose={() => setSelectedTableForPOS(null)}
+        currentStaff={currentStaff}
         onSuccess={() => {
           if (onStateChange) onStateChange();
         }}
