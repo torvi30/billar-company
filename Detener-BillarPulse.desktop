@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Detener BillarPulse
+Comment=Apaga y cierra todos los procesos de BillarPulse
+Exec=/home/victor/Escritorio/billar-company/detener-billarpulse.sh
+Icon=process-stop
+Terminal=false
+Categories=Office;Finance;Game;
+StartupNotify=true

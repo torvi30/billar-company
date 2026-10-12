@@ -5,6 +5,6 @@ Name=BillarPulse POS
 Comment=Sistema POS y Marcador Digital de Billar
 Exec=/home/victor/Escritorio/billar-company/iniciar-billarpulse.sh
 Icon=applications-games
-Terminal=false
+Terminal=true
 Categories=Office;Finance;Game;
 StartupNotify=true

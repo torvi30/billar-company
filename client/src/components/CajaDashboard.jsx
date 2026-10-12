@@ -47,6 +47,15 @@ export default function CajaDashboard({ tablesOverview, stats, onStateChange, on
     setActiveAlerts(alerts);
   }, [tablesOverview]);
 
+  // Live chronometer ticker: updates timeElapsed and live costs second-by-second
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTick(t => t + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Handle opening table
   const handleStartSession = async (tableId) => {
     try {
@@ -162,40 +171,46 @@ export default function CajaDashboard({ tablesOverview, stats, onStateChange, on
         </div>
       </div>
 
-      {/* --- LIVE SERVICE ALERTS BANNER --- */}
+      {/* --- LIVE SERVICE ALERTS BANNER (Compacto & Claro) --- */}
       {activeAlerts.length > 0 && (
         <div style={{
-          background: 'rgba(244, 63, 94, 0.12)',
-          border: '2px solid var(--color-alert)',
+          background: 'linear-gradient(90deg, rgba(239, 68, 68, 0.18) 0%, rgba(244, 63, 94, 0.08) 100%)',
+          border: '1px solid rgba(239, 68, 68, 0.5)',
+          borderLeft: '4px solid var(--color-alert)',
           borderRadius: 'var(--radius-md)',
-          padding: '1rem 1.5rem',
+          padding: '0.65rem 1.15rem',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          boxShadow: 'var(--shadow-neon-red)',
-          animation: 'pulse-subtle 2s infinite ease-in-out'
+          gap: '1rem',
+          boxShadow: '0 4px 15px rgba(239, 68, 68, 0.15)'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <div style={{
               background: 'var(--color-alert)',
               color: '#fff',
-              padding: '0.5rem',
+              width: '32px',
+              height: '32px',
               borderRadius: '50%',
-              display: 'flex'
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0
             }}>
-              <Bell size={22} className="animate-bounce" />
+              <Bell size={18} className="animate-bounce" />
             </div>
             <div>
-              <div style={{ fontWeight: 800, fontSize: '1.1rem', color: '#fff' }}>
-                ¡Atención Requerida en Salón! ({activeAlerts.length} llamadas activas)
-              </div>
-              <div style={{ fontSize: '0.85rem', color: '#fca5a5' }}>
-                {activeAlerts.map(a => `Mesa ${a.table_number}: ${a.type === 'waiter' ? 'Llama mesero' : 'Pide la cuenta'}`).join(' • ')}
+              <div style={{ fontWeight: 800, fontSize: '0.95rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <span>Llamadas en salón ({activeAlerts.length})</span>
+                <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>•</span>
+                <span style={{ color: '#fca5a5', fontSize: '0.88rem', fontWeight: 700 }}>
+                  {activeAlerts.map(a => `Mesa ${a.table_number}: ${a.type === 'waiter' ? 'Llama mesera/o' : 'Pide la cuenta'}`).join(' • ')}
+                </span>
               </div>
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
             {activeAlerts.map(alertItem => (
               <button
                 key={alertItem.id}
@@ -203,14 +218,15 @@ export default function CajaDashboard({ tablesOverview, stats, onStateChange, on
                 style={{
                   background: 'var(--color-alert)',
                   color: '#fff',
-                  fontWeight: 800,
-                  fontSize: '0.85rem',
-                  padding: '0.5rem 1rem',
+                  fontWeight: 700,
+                  fontSize: '0.8rem',
+                  padding: '0.35rem 0.85rem',
                   borderRadius: 'var(--radius-sm)',
-                  boxShadow: '0 4px 12px rgba(244, 63, 94, 0.4)'
+                  boxShadow: '0 2px 8px rgba(239, 68, 68, 0.3)',
+                  cursor: 'pointer'
                 }}
               >
-                Atender Mesa {alertItem.table_number}
+                ✓ Atendido Mesa {alertItem.table_number}
               </button>
             ))}
           </div>
@@ -513,6 +529,43 @@ export default function CajaDashboard({ tablesOverview, stats, onStateChange, on
                             {formatCurrency(totalTable)}
                           </div>
                         </div>
+                      </div>
+
+                      {/* Lista de consumos específicos de esta mesa */}
+                      <div style={{
+                        background: 'rgba(0, 0, 0, 0.3)',
+                        border: '1px solid var(--border-subtle)',
+                        borderRadius: 'var(--radius-sm)',
+                        padding: '0.5rem 0.65rem',
+                        fontSize: '0.76rem'
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem', color: 'var(--text-secondary)', fontWeight: 700 }}>
+                          <span>Consumos de Mesa {table.table_number}:</span>
+                          <span style={{ color: 'var(--color-gold)' }}>{formatCurrency(barConsumption)}</span>
+                        </div>
+                        {table.orders && table.orders.length > 0 ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', maxHeight: '75px', overflowY: 'auto' }}>
+                            {table.orders.map((ord, idx) => (
+                              <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#fff' }}>
+                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '240px' }}>
+                                  <span style={{ color: 'var(--color-brand)', fontWeight: 800 }}>{ord.quantity}x</span> {ord.product_name}
+                                  {ord.assigned_to && ord.assigned_to !== 'Mesa' ? (
+                                    <span style={{ color: 'var(--color-blue)', fontSize: '0.72rem', marginLeft: '4px', fontWeight: 600 }}>
+                                      ({ord.assigned_to})
+                                    </span>
+                                  ) : null}
+                                </span>
+                                <span className="mono" style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>
+                                  {formatCurrency(ord.subtotal)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem', fontStyle: 'italic' }}>
+                            Sin consumos de barra todavía
+                          </div>
+                        )}
                       </div>
                     </div>
                   ) : (
@@ -831,6 +884,31 @@ export default function CajaDashboard({ tablesOverview, stats, onStateChange, on
                           {formatCurrency(barConsumption)}
                         </div>
                       </div>
+
+                      {/* Lista de consumos para la cuenta de barra */}
+                      {tab.orders && tab.orders.length > 0 && (
+                        <div style={{
+                          background: 'rgba(0, 0, 0, 0.3)',
+                          border: '1px solid var(--border-subtle)',
+                          borderRadius: 'var(--radius-sm)',
+                          padding: '0.5rem 0.65rem',
+                          fontSize: '0.76rem',
+                          marginBottom: '0.75rem'
+                        }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', maxHeight: '75px', overflowY: 'auto' }}>
+                            {tab.orders.map((ord, idx) => (
+                              <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#fff' }}>
+                                <span>
+                                  <span style={{ color: 'var(--color-brand)', fontWeight: 800 }}>{ord.quantity}x</span> {ord.product_name}
+                                </span>
+                                <span className="mono" style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>
+                                  {formatCurrency(ord.subtotal)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr auto', gap: '0.4rem', borderTop: '1px solid var(--border-subtle)', paddingTop: '0.85rem' }}>

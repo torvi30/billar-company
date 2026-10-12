@@ -264,11 +264,23 @@ const dbOperations = {
       SELECT * FROM service_alerts WHERE status = 'pending'
     `).all();
 
+    const activeOrders = db.prepare(`
+      SELECT o.session_id, oi.id, oi.quantity, oi.unit_price, oi.subtotal, 
+             COALESCE(oi.assigned_to, 'Mesa') as assigned_to, p.name as product_name, o.created_at
+      FROM orders o
+      JOIN order_items oi ON oi.order_id = o.id
+      JOIN products p ON p.id = oi.product_id
+      JOIN sessions s ON s.id = o.session_id
+      WHERE s.status = 'active'
+      ORDER BY o.created_at ASC
+    `).all();
+
     const allScores = db.prepare('SELECT * FROM scores').all();
 
     return tables.map(table => {
       const session = activeSessions.find(s => s.table_id === table.id) || null;
       const alerts = pendingAlerts.filter(a => a.table_id === table.id);
+      const tableOrders = session ? activeOrders.filter(o => o.session_id === session.id) : [];
       const score = allScores.find(sc => sc.table_id === table.id) || {
         player1_name: 'Jugador 1',
         player2_name: 'Jugador 2',
@@ -281,6 +293,7 @@ const dbOperations = {
       return {
         ...table,
         current_session: session,
+        orders: tableOrders,
         alerts: alerts,
         score: score
       };

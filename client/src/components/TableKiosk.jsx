@@ -703,9 +703,9 @@ export default function TableKiosk({ tableId, tablesOverview, onStateChange }) {
             <>
               <CheckCircle2 size={32} color="var(--color-gold)" />
               <div style={{ textAlign: 'left' }}>
-                <div>Mesero Notificado</div>
+                <div>Mesera/o Notificado/a</div>
                 <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                  En camino a tu mesa...
+                  En camino a la Mesa {currentTable.table_number}...
                 </div>
               </div>
             </>
@@ -713,9 +713,9 @@ export default function TableKiosk({ tableId, tablesOverview, onStateChange }) {
             <>
               <Bell size={32} color="var(--color-brand)" />
               <div style={{ textAlign: 'left' }}>
-                <div>Llamar Mesero</div>
+                <div>Llamar Mesera / Mesero</div>
                 <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)' }}>
-                  Bebidas, botanas o asistencia
+                  Toca para solicitar atención en Mesa {currentTable.table_number}
                 </div>
               </div>
             </>
@@ -750,7 +750,7 @@ export default function TableKiosk({ tableId, tablesOverview, onStateChange }) {
               <div style={{ textAlign: 'left' }}>
                 <div>Cuenta Solicitada</div>
                 <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                  Caja preparando liquidación...
+                  Caja preparando liquidación de Mesa {currentTable.table_number}...
                 </div>
               </div>
             </>
@@ -760,7 +760,7 @@ export default function TableKiosk({ tableId, tablesOverview, onStateChange }) {
               <div style={{ textAlign: 'left' }}>
                 <div>Pedir la Cuenta</div>
                 <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)' }}>
-                  Finalizar juego y pagar en caja
+                  {isOccupied ? `Finalizar partida de Mesa ${currentTable.table_number}` : 'Disponible en partida activa'}
                 </div>
               </div>
             </>

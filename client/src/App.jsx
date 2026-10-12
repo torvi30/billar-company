@@ -13,10 +13,11 @@ import { network, api } from './services/api';
 import { sounds } from './utils/audio';
 
 export default function App() {
-  // Check URL search params for kiosk tablet direct deployment (e.g. ?table=1 or ?view=kiosk&table=1)
+  // Check URL search params for table link (e.g. ?mesa=1, ?table=1, ?tableId=1)
   const urlParams = new URLSearchParams(window.location.search);
-  const paramTable = urlParams.get('table') || urlParams.get('tableId');
-  const initialView = paramTable ? 'kiosk' : (urlParams.get('view') || 'caja');
+  const paramTable = urlParams.get('mesa') || urlParams.get('table') || urlParams.get('tableId') || urlParams.get('m');
+  const isDirectTable = Boolean(paramTable);
+  const initialView = isDirectTable ? 'kiosk' : (urlParams.get('view') || 'caja');
   const initialTableId = paramTable ? Number(paramTable) : 1;
 
   const [currentView, setView] = useState(initialView);
@@ -124,6 +125,7 @@ export default function App() {
         setSelectedTableId={setSelectedTableId}
         isConnected={isConnected}
         tables={tablesOverview}
+        isDirectTable={isDirectTable}
         onOpenShiftReport={() => setIsShiftReportOpen(true)}
         onOpenAdmin={() => setIsAdminModalOpen(true)}
         onOpenHistory={() => setIsHistoryModalOpen(true)}

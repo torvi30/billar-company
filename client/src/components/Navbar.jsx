@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Wifi, WifiOff, Volume2, LayoutGrid, Tablet, Clock, FileText, Settings, Receipt, TrendingUp, QrCode } from 'lucide-react';
+import { Wifi, WifiOff, Volume2, LayoutGrid, Tablet, Clock, FileText, Settings, Receipt, TrendingUp, QrCode, Lock } from 'lucide-react';
 import { sounds } from '../utils/audio';
 
 export default function Navbar({ 
@@ -9,6 +9,7 @@ export default function Navbar({
   setSelectedTableId, 
   isConnected, 
   tables,
+  isDirectTable = false,
   onOpenShiftReport,
   onOpenAdmin,
   onOpenHistory,
@@ -93,15 +94,35 @@ export default function Navbar({
         </div>
       </div>
 
-      {/* View Switcher Controls */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-        <div style={{
-          background: 'rgba(255, 255, 255, 0.05)',
-          padding: '4px',
-          borderRadius: 'var(--radius-md)',
-          display: 'flex',
-          gap: '4px'
-        }}>
+      {/* View Switcher Controls / Direct Table Header */}
+      {isDirectTable ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <div style={{
+            padding: '0.45rem 1.15rem',
+            borderRadius: 'var(--radius-full)',
+            background: 'rgba(0, 230, 118, 0.12)',
+            border: '1px solid rgba(0, 230, 118, 0.35)',
+            color: 'var(--color-brand)',
+            fontWeight: 800,
+            fontSize: '0.9rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            boxShadow: 'var(--shadow-neon-green)'
+          }}>
+            <span>🎱 Mesa {tables.find(t => t.id === selectedTableId)?.table_number || selectedTableId}</span>
+            <span style={{ fontSize: '0.75rem', color: '#fff', opacity: 0.8 }}>• Pantalla en Vivo</span>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <div style={{
+            background: 'rgba(255, 255, 255, 0.05)',
+            padding: '4px',
+            borderRadius: 'var(--radius-md)',
+            display: 'flex',
+            gap: '4px'
+          }}>
           <button
             onClick={handleCajaClick}
             style={{
@@ -239,8 +260,8 @@ export default function Navbar({
           </div>
         )}
 
-        {/* Table Selector if in Kiosk view */}
-        {currentView === 'kiosk' && (
+        {/* Table Selector if in Kiosk view (solo si no es link directo) */}
+        {!isDirectTable && currentView === 'kiosk' && (
           <select
             value={selectedTableId}
             onChange={(e) => setSelectedTableId(Number(e.target.value))}
@@ -264,6 +285,7 @@ export default function Navbar({
           </select>
         )}
       </div>
+      )}
 
       {/* Status & Clock */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>

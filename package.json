@@ -4,7 +4,9 @@
   "description": "Sistema POS & Marcador Táctil Offline-First para Salas de Billar",
   "scripts": {
     "start": "node server/index.js",
+    "stop": "./detener-billarpulse.sh",
     "build": "cd client && npm run build",
+    "dev": "node dev.js",
     "dev:client": "cd client && npm run dev",
     "dev:server": "cd server && node index.js"
   },
