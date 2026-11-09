@@ -6,6 +6,10 @@ const fs = require('fs');
 const os = require('os');
 const WebSocket = require('ws');
 const { dbOperations, dbPath } = require('./db');
+const { getMachineId, verifyLicenseKey, getLicenseStatus } = require('./license');
+const { sendShiftCloseNotification, getWhatsAppLink, formatWhatsAppShiftMessage } = require('./notifier');
+const { tenantManager } = require('./tenants');
+const { createSafeBackup, listBackups, initBackupScheduler } = require('./backup');
 
 const app = express();
 const server = http.createServer(app);
@@ -13,8 +17,39 @@ const wss = new WebSocket.Server({ server });
 
 const PORT = process.env.PORT || 3001;
 
+// Initialize automatic backup scheduler (daily at midnight / 6h interval)
+initBackupScheduler();
+
 app.use(cors());
 app.use(express.json());
+
+// Subscription Enforcement Middleware
+// Protects operations if the current business is suspended / expired
+app.use((req, res, next) => {
+  // Always permit CEO portal, authentication, backups, and public info
+  if (
+    req.path.startsWith('/api/ceo') ||
+    req.path.startsWith('/api/auth') ||
+    req.path === '/api/business/current' ||
+    req.path === '/api/license' ||
+    req.path === '/api/license/activate' ||
+    !req.path.startsWith('/api')
+  ) {
+    return next();
+  }
+
+  const activeTenant = tenantManager.getActiveTenant();
+  if (activeTenant && activeTenant.isLocked && ['POST', 'PUT', 'DELETE'].includes(req.method)) {
+    return res.status(403).json({
+      success: false,
+      error: 'SUBSCRIPTION_LOCKED',
+      message: `El servicio de BillarPulse para "${activeTenant.name}" se encuentra suspendido por renovación pendiente.`,
+      business: activeTenant
+    });
+  }
+
+  next();
+});
 
 // Broadcast helpers
 function broadcastToAll(message) {
@@ -50,10 +85,14 @@ wss.on('connection', (ws) => {
   try {
     const tablesOverview = dbOperations.getTablesWithSessions();
     const stats = dbOperations.getStats();
+    const settings = dbOperations.getSettings();
+    const license = getLicenseStatus(dbOperations);
     ws.send(JSON.stringify({
       type: 'INIT_STATE',
       tablesOverview,
       stats,
+      settings,
+      license,
       timestamp: Date.now()
     }));
   } catch (err) {
@@ -135,6 +174,158 @@ wss.on('close', () => {
 });
 
 // --- REST API ENDPOINTS ---
+
+// ==========================================
+// --- CEO MASTER HUB & MULTI-TENANT APIS ---
+// ==========================================
+
+// Verify CEO Master PIN
+app.post('/api/ceo/login', (req, res) => {
+  try {
+    const { pin } = req.body;
+    if (!tenantManager.verifyCEOPin(pin)) {
+      return res.status(401).json({ success: false, error: 'PIN Maestro de CEO incorrecto' });
+    }
+    const stats = tenantManager.getCEOStats();
+    const activeTenant = tenantManager.getActiveTenant();
+    res.json({
+      success: true,
+      ceoRole: 'SUPER_ADMIN',
+      activeTenant,
+      stats
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Get CEO Overview (All clubs, global metrics, current active club)
+app.get('/api/ceo/overview', (req, res) => {
+  try {
+    const businesses = tenantManager.getAllBusinesses();
+    const stats = tenantManager.getCEOStats();
+    const activeTenant = tenantManager.getActiveTenant();
+    res.json({
+      success: true,
+      businesses,
+      stats,
+      activeTenant
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Create new business / club
+app.post('/api/ceo/businesses', (req, res) => {
+  try {
+    const newBiz = tenantManager.createBusiness(req.body);
+    res.json({ success: true, business: newBiz });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Update business details / subscription status
+app.put('/api/ceo/businesses/:id', (req, res) => {
+  try {
+    const updated = tenantManager.updateBusiness(Number(req.params.id), req.body);
+    res.json({ success: true, business: updated });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Delete / Archive business
+app.delete('/api/ceo/businesses/:id', (req, res) => {
+  try {
+    const result = tenantManager.deleteBusiness(Number(req.params.id));
+    res.json({ success: true, message: result.message });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Regenerate / renew cryptographic license for a club
+app.post('/api/ceo/businesses/:id/license', (req, res) => {
+  try {
+    const result = tenantManager.regenerateLicense(Number(req.params.id), req.body);
+    res.json({ success: true, license: result });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Switch active club in server context (live live-reload for CEO)
+app.post('/api/ceo/switch-business', (req, res) => {
+  try {
+    const { businessId, slug } = req.body;
+    const result = tenantManager.switchActiveTenant(slug || businessId);
+    
+    // Broadcast state update so all screens (caja, kiosk) reload with the new club's tables & stats
+    broadcastTableUpdate(null);
+    broadcastToAll({
+      type: 'BUSINESS_SWITCHED',
+      business: result.activeTenant,
+      timestamp: Date.now()
+    });
+
+    res.json({ success: true, activeTenant: result.activeTenant });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Current business info (public for UI header)
+app.get('/api/business/current', (req, res) => {
+  try {
+    const active = tenantManager.getActiveTenant();
+    res.json({ success: true, business: active });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Extend business subscription (CEO Action: 1 month, 3 months, 1 year, perpetual)
+app.post('/api/ceo/businesses/:id/extend-subscription', (req, res) => {
+  try {
+    const { duration } = req.body;
+    const updated = tenantManager.extendSubscription(Number(req.params.id), duration || '1_month');
+    
+    // Broadcast state update so client unlocks in real-time
+    broadcastTableUpdate(null);
+    broadcastToAll({
+      type: 'BUSINESS_SWITCHED',
+      business: updated,
+      timestamp: Date.now()
+    });
+
+    res.json({ success: true, business: updated });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// List all database backups
+app.get('/api/admin/backups', (req, res) => {
+  try {
+    const backups = listBackups();
+    res.json({ success: true, data: backups });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Create safe database backup on demand
+app.post('/api/admin/backups/create', async (req, res) => {
+  try {
+    const label = req.body.label || 'manual';
+    const result = await createSafeBackup(label);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 // Get all tables with sessions and alerts
 app.get('/api/tables', (req, res) => {
@@ -234,9 +425,29 @@ app.get('/api/sessions/:id/breakdown', (req, res) => {
 // Bar Tabs / Salón endpoints (Cuentas sin mesa de billar)
 app.post('/api/bar-tabs', (req, res) => {
   try {
-    const { name } = req.body;
-    const tab = dbOperations.createBarTab(name);
+    const { name, location, customerName, customer_name } = req.body;
+    const tab = dbOperations.createBarTab({
+      name,
+      location,
+      customerName: customerName || customer_name
+    });
     broadcastTableUpdate(tab.tableId);
+    res.json({ success: true, data: tab });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.put('/api/bar-tabs/:id', (req, res) => {
+  try {
+    const tableId = Number(req.params.id);
+    const { name, location, customerName, customer_name } = req.body;
+    const tab = dbOperations.updateBarTab(tableId, {
+      name,
+      location,
+      customerName: customerName || customer_name
+    });
+    broadcastTableUpdate(tableId);
     res.json({ success: true, data: tab });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
@@ -248,6 +459,24 @@ app.delete('/api/bar-tabs/:id', (req, res) => {
     const tableId = Number(req.params.id);
     const result = dbOperations.deleteBarTab(tableId);
     broadcastTableUpdate(null);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Separar un consumo de una mesa a una cuenta personal o barra
+app.post('/api/order-items/:id/separate', (req, res) => {
+  try {
+    const itemId = Number(req.params.id);
+    const { location, customerName, targetTableId } = req.body;
+    const result = dbOperations.separateOrderItem(itemId, {
+      location,
+      customerName,
+      targetTableId: targetTableId ? Number(targetTableId) : null
+    });
+    broadcastTableUpdate(result.sourceTableId);
+    broadcastTableUpdate(result.targetTableId);
     res.json({ success: true, data: result });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
@@ -418,9 +647,36 @@ app.put('/api/tables/:id', (req, res) => {
 // Create new table
 app.post('/api/tables', (req, res) => {
   try {
+    const license = getLicenseStatus(dbOperations);
+    if (!license.isValid) {
+      return res.status(403).json({
+        success: false,
+        error: `Licencia no válida (${license.reason || license.status}). Contacta a tu proveedor para activar tu licencia.`
+      });
+    }
+
+    if (license.tablesInUse >= license.maxTables) {
+      return res.status(403).json({
+        success: false,
+        error: `Has alcanzado el límite máximo de ${license.maxTables} mesas autorizado en tu licencia (${license.businessName || 'Plan Actual'}). Para habilitar más mesas, contacta a tu proveedor de BillarPulse.`
+      });
+    }
+
     const table = dbOperations.createTable(req.body);
     broadcastTableUpdate(table.id);
     res.json({ success: true, data: table });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Delete / Archive table
+app.delete('/api/tables/:id', (req, res) => {
+  try {
+    const tableId = Number(req.params.id);
+    const result = dbOperations.deleteTable(tableId);
+    broadcastTableUpdate(null);
+    res.json({ success: true, data: result });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
   }
@@ -498,6 +754,12 @@ app.post('/api/shifts/close', (req, res) => {
   try {
     const closed = dbOperations.closeShift(req.body);
     broadcastTableUpdate(null);
+
+    // Asynchronously dispatch automatic shift summary to owner (Telegram / Webhook)
+    sendShiftCloseNotification(closed, dbOperations).catch(err => {
+      console.warn('[Notifier] Error enviando reporte de cierre:', err.message);
+    });
+
     res.json({ success: true, data: closed });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
@@ -650,6 +912,102 @@ app.get('/api/admin/analytics', (req, res) => {
     const range = req.query.range || 'today';
     const data = dbOperations.getAnalytics(range);
     res.json({ success: true, data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// License Management & Activation
+app.get('/api/license', (req, res) => {
+  try {
+    const status = getLicenseStatus(dbOperations);
+    res.json({ success: true, data: status });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/license/activate', (req, res) => {
+  try {
+    const { licenseKey } = req.body;
+    if (!licenseKey || typeof licenseKey !== 'string') {
+      return res.status(400).json({ success: false, error: 'Debe ingresar una clave de licencia válida.' });
+    }
+
+    const machineId = getMachineId();
+    const verified = verifyLicenseKey(licenseKey.trim(), machineId);
+
+    if (!verified.isValid) {
+      return res.status(400).json({
+        success: false,
+        error: verified.reason || 'Clave de licencia inválida o no corresponde a este equipo.'
+      });
+    }
+
+    // Save license key
+    dbOperations.updateSetting('license_key', licenseKey.trim());
+    if (verified.businessName) {
+      dbOperations.updateSetting('business_name', verified.businessName);
+    }
+    if (verified.nit) {
+      dbOperations.updateSetting('business_nit', verified.nit);
+    }
+
+    const newStatus = getLicenseStatus(dbOperations);
+
+    // Broadcast update to all connected screens
+    broadcastToAll({
+      type: 'LICENSE_UPDATED',
+      license: newStatus,
+      timestamp: Date.now()
+    });
+
+    res.json({
+      success: true,
+      message: `¡Licencia activada con éxito para ${verified.businessName}!`,
+      data: newStatus
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Generate WhatsApp Test Link & Message
+app.post('/api/notifications/whatsapp-test', (req, res) => {
+  try {
+    const { phone } = req.body;
+    const settings = dbOperations.getSettings();
+    const targetPhone = phone || settings.owner_whatsapp;
+    const clubName = settings.business_name || 'BILLARPULSE CLUB';
+
+    if (!targetPhone) {
+      return res.status(400).json({
+        success: false,
+        error: 'Debe ingresar un número de teléfono de WhatsApp válido.'
+      });
+    }
+
+    const testMsg = [
+      `🎱 *¡CONEXIÓN EXITOSA CON BILLARPULSE!*`,
+      `🏢 *Club:* ${clubName}`,
+      `🕒 *Hora:* ${new Date().toLocaleTimeString('es-CO')}`,
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+      `✅ Las alertas automáticas por WhatsApp están activas para este número.`,
+      `📲 Cada vez que un cajero realice el *Cierre de Turno (Corte Z)* recibirás el resumen financiero completo aquí.`,
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+      `_BillarPulse POS - Control Total en la Palma de tu Mano_`
+    ].join('\n');
+
+    const link = getWhatsAppLink(targetPhone, testMsg);
+
+    res.json({
+      success: true,
+      data: {
+        link,
+        phone: targetPhone,
+        message: testMsg
+      }
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

@@ -10,6 +10,9 @@ client/dist/
 server/data/*.db-wal
 server/data/*.db-shm
 server/data/*.db-journal
+server/data/.machine-id
+server/data/backups/
+server/data/tenants/
 
 # Logs
 logs/

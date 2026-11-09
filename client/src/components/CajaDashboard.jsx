@@ -14,7 +14,12 @@ import {
   AlertCircle, 
   Eye,
   ArrowRightLeft,
-  Trash2
+  Trash2,
+  User,
+  Edit2,
+  MapPin,
+  X,
+  Wrench
 } from 'lucide-react';
 import { formatCurrency, formatDuration, formatSessionDuration, calculateSessionLiveCost, calculateLiveTimeCost } from '../utils/formatters';
 import { sounds } from '../utils/audio';
@@ -25,7 +30,7 @@ import TransferTableModal from './TransferTableModal';
 import TablePreviewModal from './TablePreviewModal';
 import OpenBarTabModal from './OpenBarTabModal';
 
-export default function CajaDashboard({ tablesOverview, stats, onStateChange, onSelectTableForKiosk, currentStaff = null }) {
+export default function CajaDashboard({ tablesOverview, stats, onStateChange, onSelectTableForKiosk, currentStaff = null, onOpenAdmin = null }) {
   const [selectedTableForPOS, setSelectedTableForPOS] = useState(null);
   const [selectedTableForCheckout, setSelectedTableForCheckout] = useState(null);
   const [selectedTableForTransfer, setSelectedTableForTransfer] = useState(null);
@@ -33,6 +38,45 @@ export default function CajaDashboard({ tablesOverview, stats, onStateChange, on
   const [activeAlerts, setActiveAlerts] = useState([]);
   const [activeTabSection, setActiveTabSection] = useState('mesas'); // 'mesas' | 'barra'
   const [isOpenBarTabModal, setIsOpenBarTabModal] = useState(false);
+  const [editingBarTab, setEditingBarTab] = useState(null);
+  const [separatingItem, setSeparatingItem] = useState(null);
+  const [separateLocation, setSeparateLocation] = useState('');
+  const [separateCustomer, setSeparateCustomer] = useState('');
+  const [separateLoading, setSeparateLoading] = useState(false);
+
+  const handleConfirmSeparateItem = async (e) => {
+    if (e) e.preventDefault();
+    if (!separatingItem || !separateCustomer.trim()) return;
+    setSeparateLoading(true);
+    try {
+      sounds.playCashRegister();
+      await api.separateOrderItem(separatingItem.id, {
+        location: separateLocation.trim() || `Mesa ${separatingItem.table_number}`,
+        customerName: separateCustomer.trim()
+      });
+      setSeparatingItem(null);
+      setSeparateCustomer('');
+      if (onStateChange) onStateChange();
+    } catch (err) {
+      sounds.playError();
+      alert(err.message || 'Error al separar consumo');
+    } finally {
+      setSeparateLoading(false);
+    }
+  };
+
+  const handleToggleMaintenance = async (table) => {
+    try {
+      sounds.playScoreBeep(true);
+      const nextStatus = table.status === 'maintenance' ? 'available' : 'maintenance';
+      await api.updateTable(table.id, { status: nextStatus });
+      sounds.playCashRegister();
+      if (onStateChange) onStateChange();
+    } catch (err) {
+      sounds.playError();
+      alert('Error cambiando estado de mesa: ' + err.message);
+    }
+  };
 
   // Collect all pending alerts across tables
   useEffect(() => {
@@ -114,6 +158,22 @@ export default function CajaDashboard({ tablesOverview, stats, onStateChange, on
     }
   };
 
+  const handleToggleTableMaintenance = async (table) => {
+    const isMaintenance = table.status === 'maintenance';
+    const newStatus = isMaintenance ? 'available' : 'maintenance';
+    try {
+      await api.updateTable(table.id, {
+        name: table.name,
+        hourly_rate: table.hourly_rate,
+        type: table.type,
+        status: newStatus
+      });
+      if (onStateChange) onStateChange();
+    } catch (err) {
+      alert('Error al actualizar estado de la mesa: ' + (err.message || ''));
+    }
+  };
+
   return (
     <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
       {/* --- TOP METRICS / CASH REGISTER SUMMARY --- */}
@@ -137,10 +197,10 @@ export default function CajaDashboard({ tablesOverview, stats, onStateChange, on
             <Activity size={20} color="var(--color-blue)" />
           </div>
           <div className="mono" style={{ fontSize: '1.8rem', fontWeight: 800, color: '#fff', marginTop: '0.5rem' }}>
-            {tablesOverview.filter(t => t.status === 'occupied').length} / {tablesOverview.length}
+            {poolTables.filter(t => t.status === 'occupied').length} / {poolTables.length}
           </div>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-            {tablesOverview.filter(t => t.status === 'available').length} mesas libres
+            {poolTables.filter(t => t.status === 'available').length} mesas libres
           </div>
         </div>
 
@@ -291,7 +351,7 @@ export default function CajaDashboard({ tablesOverview, stats, onStateChange, on
               cursor: 'pointer'
             }}
           >
-            <span>🍺 Barra & Clientes Sentados</span>
+            <span>🍺 Barra & Cuentas Personales</span>
             <span style={{
               background: barTabs.length > 0 ? 'var(--color-gold)' : 'rgba(255, 255, 255, 0.1)',
               color: barTabs.length > 0 ? '#090d16' : '#fff',
@@ -306,7 +366,10 @@ export default function CajaDashboard({ tablesOverview, stats, onStateChange, on
         </div>
 
         <button
-          onClick={() => setIsOpenBarTabModal(true)}
+          onClick={() => {
+            setEditingBarTab(null);
+            setIsOpenBarTabModal(true);
+          }}
           style={{
             padding: '0.65rem 1.25rem',
             background: 'linear-gradient(135deg, #fbbf24, #d97706)',
@@ -323,14 +386,14 @@ export default function CajaDashboard({ tablesOverview, stats, onStateChange, on
           }}
         >
           <PlusCircle size={16} />
-          + Abrir Cuenta Barra / Salón
+          + Abrir Cuenta Barra / Personal
         </button>
       </div>
 
       {/* --- SECCIÓN 1: MESAS DE BILLAR --- */}
       {activeTabSection === 'mesas' ? (
         <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.75rem' }}>
             <div>
               <h2 style={{ fontSize: '1.35rem', fontWeight: 800, color: '#fff', margin: 0 }}>
                 Plano de Mesas del Salón
@@ -340,19 +403,48 @@ export default function CajaDashboard({ tablesOverview, stats, onStateChange, on
               </p>
             </div>
 
-            <div style={{ display: 'flex', gap: '1rem', fontSize: '0.8rem', fontWeight: 700 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--color-brand)' }}>
-                <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: 'var(--color-brand)' }} />
-                Disponible
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: '1rem', fontSize: '0.8rem', fontWeight: 700 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--color-brand)' }}>
+                  <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: 'var(--color-brand)' }} />
+                  Disponible
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--color-blue)' }}>
+                  <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: 'var(--color-blue)' }} />
+                  En Partida
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--color-gold)' }}>
+                  <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: 'var(--color-gold)' }} />
+                  Mantenimiento
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--color-alert)' }}>
+                  <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: 'var(--color-alert)' }} />
+                  Llamada Activa
+                </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--color-blue)' }}>
-                <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: 'var(--color-blue)' }} />
-                En Partida
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--color-alert)' }}>
-                <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: 'var(--color-alert)' }} />
-                Llamada Activa
-              </div>
+
+              {onOpenAdmin && (
+                <button
+                  onClick={() => onOpenAdmin('tables')}
+                  style={{
+                    background: 'rgba(59, 130, 246, 0.15)',
+                    color: 'var(--color-blue)',
+                    border: '1px solid rgba(59, 130, 246, 0.35)',
+                    padding: '0.45rem 0.85rem',
+                    borderRadius: 'var(--radius-sm)',
+                    fontSize: '0.8rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem'
+                  }}
+                  title="Crear nueva mesa o administrar tarifas"
+                >
+                  <PlusCircle size={15} />
+                  + Crear / Gestionar Mesas
+                </button>
+              )}
             </div>
           </div>
 
@@ -469,6 +561,22 @@ export default function CajaDashboard({ tablesOverview, stats, onStateChange, on
                         }}>
                           OCUPADA
                         </div>
+                      ) : table.status === 'maintenance' ? (
+                        <div style={{
+                          background: 'rgba(251, 191, 36, 0.15)',
+                          color: 'var(--color-gold)',
+                          border: '1px solid rgba(251, 191, 36, 0.3)',
+                          padding: '4px 10px',
+                          borderRadius: 'var(--radius-full)',
+                          fontSize: '0.75rem',
+                          fontWeight: 700,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.35rem'
+                        }}>
+                          <Wrench size={12} />
+                          MANTENIMIENTO
+                        </div>
                       ) : (
                         <div style={{
                           background: 'rgba(0, 230, 118, 0.15)',
@@ -546,8 +654,8 @@ export default function CajaDashboard({ tablesOverview, stats, onStateChange, on
                         {table.orders && table.orders.length > 0 ? (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', maxHeight: '75px', overflowY: 'auto' }}>
                             {table.orders.map((ord, idx) => (
-                              <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#fff' }}>
-                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '240px' }}>
+                              <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#fff', gap: '0.4rem' }}>
+                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '200px' }}>
                                   <span style={{ color: 'var(--color-brand)', fontWeight: 800 }}>{ord.quantity}x</span> {ord.product_name}
                                   {ord.assigned_to && ord.assigned_to !== 'Mesa' ? (
                                     <span style={{ color: 'var(--color-blue)', fontSize: '0.72rem', marginLeft: '4px', fontWeight: 600 }}>
@@ -555,9 +663,34 @@ export default function CajaDashboard({ tablesOverview, stats, onStateChange, on
                                     </span>
                                   ) : null}
                                 </span>
-                                <span className="mono" style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>
-                                  {formatCurrency(ord.subtotal)}
-                                </span>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                                  <span className="mono" style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>
+                                    {formatCurrency(ord.subtotal)}
+                                  </span>
+                                  <button
+                                    onClick={() => {
+                                      setSeparatingItem({ ...ord, table_number: table.table_number, table_id: table.id });
+                                      setSeparateLocation(`Mesa ${table.table_number}`);
+                                      setSeparateCustomer(ord.assigned_to && ord.assigned_to !== 'Mesa' ? ord.assigned_to : '');
+                                    }}
+                                    title="Separar consumo a cuenta personal (no sumar a la mesa)"
+                                    style={{
+                                      background: 'rgba(251, 191, 36, 0.15)',
+                                      border: '1px solid rgba(251, 191, 36, 0.35)',
+                                      color: 'var(--color-gold)',
+                                      borderRadius: '3px',
+                                      padding: '1px 5px',
+                                      fontSize: '0.65rem',
+                                      fontWeight: 800,
+                                      cursor: 'pointer',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '2px'
+                                    }}
+                                  >
+                                    <User size={10} /> Separar
+                                  </button>
+                                </div>
                               </div>
                             ))}
                           </div>
@@ -566,6 +699,23 @@ export default function CajaDashboard({ tablesOverview, stats, onStateChange, on
                             Sin consumos de barra todavía
                           </div>
                         )}
+                      </div>
+                    </div>
+                  ) : table.status === 'maintenance' ? (
+                    <div style={{
+                      padding: '1.75rem 1rem',
+                      textAlign: 'center',
+                      background: 'rgba(251, 191, 36, 0.04)',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px dashed rgba(251, 191, 36, 0.25)',
+                      marginTop: '0.75rem'
+                    }}>
+                      <Wrench size={28} color="var(--color-gold)" style={{ marginBottom: '0.4rem' }} />
+                      <div style={{ color: 'var(--color-gold)', fontWeight: 700, fontSize: '0.9rem' }}>
+                        Mesa en Mantenimiento
+                      </div>
+                      <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginTop: '2px' }}>
+                        Cambio de paño, bandas o nivelación de pizarra.
                       </div>
                     </div>
                   ) : (
@@ -690,6 +840,42 @@ export default function CajaDashboard({ tablesOverview, stats, onStateChange, on
                         <Eye size={14} />
                       </button>
                     </div>
+                  ) : table.status === 'maintenance' ? (
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button
+                        onClick={() => handleToggleTableMaintenance(table)}
+                        style={{
+                          flex: 1,
+                          padding: '0.7rem',
+                          background: 'rgba(0, 230, 118, 0.15)',
+                          color: 'var(--color-brand)',
+                          border: '1px solid rgba(0, 230, 118, 0.35)',
+                          borderRadius: 'var(--radius-sm)',
+                          fontSize: '0.82rem',
+                          fontWeight: 800,
+                          gap: '0.4rem',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <CheckCircle size={15} />
+                        Habilitar Mesa (Terminar Mantenimiento)
+                      </button>
+
+                      <button
+                        onClick={() => setPreviewTableId(table.id)}
+                        title="Ver pantalla táctil de esta mesa"
+                        style={{
+                          padding: '0.7rem',
+                          background: 'rgba(255, 255, 255, 0.05)',
+                          color: 'var(--text-secondary)',
+                          border: '1px solid var(--border-subtle)',
+                          borderRadius: 'var(--radius-sm)',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <Eye size={16} />
+                      </button>
+                    </div>
                   ) : (
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
                       <button
@@ -708,6 +894,21 @@ export default function CajaDashboard({ tablesOverview, stats, onStateChange, on
                       >
                         <Play size={16} />
                         Abrir Mesa
+                      </button>
+
+                      <button
+                        onClick={() => handleToggleTableMaintenance(table)}
+                        title="Poner mesa en mantenimiento (cambio de paño, reparaciones)"
+                        style={{
+                          padding: '0.7rem',
+                          background: 'rgba(251, 191, 36, 0.1)',
+                          color: 'var(--color-gold)',
+                          border: '1px solid rgba(251, 191, 36, 0.25)',
+                          borderRadius: 'var(--radius-sm)',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <Wrench size={16} />
                       </button>
 
                       <button
@@ -739,15 +940,18 @@ export default function CajaDashboard({ tablesOverview, stats, onStateChange, on
             <div>
               <h2 style={{ fontSize: '1.35rem', fontWeight: 800, color: '#fff', margin: 0, display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                 <Coffee size={24} color="var(--color-gold)" />
-                Cuentas de Barra & Clientes Sentados
+                Cuentas de Barra & Clientes Personales
               </h2>
               <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '2px' }}>
-                Gestión de consumos para personas sentadas en barra, terraza o salas (sin cobro por tiempo de billar).
+                Gestión de consumos para personas en barra, terraza o jugadores de billar con cuenta separada.
               </p>
             </div>
 
             <button
-              onClick={() => setIsOpenBarTabModal(true)}
+              onClick={() => {
+                setEditingBarTab(null);
+                setIsOpenBarTabModal(true);
+              }}
               style={{
                 padding: '0.6rem 1.15rem',
                 background: 'var(--color-gold)',
@@ -764,7 +968,7 @@ export default function CajaDashboard({ tablesOverview, stats, onStateChange, on
               }}
             >
               <PlusCircle size={16} />
-              + Nueva Cuenta de Barra
+              + Nueva Cuenta Barra / Personal
             </button>
           </div>
 
@@ -787,10 +991,13 @@ export default function CajaDashboard({ tablesOverview, stats, onStateChange, on
                 No hay cuentas de barra abiertas
               </h3>
               <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: '0.5rem', marginBottom: '1.75rem', lineHeight: 1.5 }}>
-                Abre una cuenta para clientes sentados que piden cervezas, tragos, agua o snacks sin ocupar una mesa de billar.
+                Abre una cuenta para clientes sentados o para jugadores de billar que piden cervezas o snacks a su nombre por separado.
               </p>
               <button
-                onClick={() => setIsOpenBarTabModal(true)}
+                onClick={() => {
+                  setEditingBarTab(null);
+                  setIsOpenBarTabModal(true);
+                }}
                 style={{
                   padding: '0.8rem 1.6rem',
                   background: 'linear-gradient(135deg, #fbbf24, #d97706)',
@@ -807,7 +1014,7 @@ export default function CajaDashboard({ tablesOverview, stats, onStateChange, on
                 }}
               >
                 <PlusCircle size={18} />
-                Abrir Cuenta de Barra Ahora
+                Abrir Cuenta Ahora
               </button>
             </div>
           ) : (
@@ -819,6 +1026,9 @@ export default function CajaDashboard({ tablesOverview, stats, onStateChange, on
               {barTabs.map(tab => {
                 const session = tab.current_session;
                 const barConsumption = session ? (session.total_consumption || 0) : 0;
+                const displayLocation = tab.location || tab.name || 'Barra';
+                const displayCustomer = tab.customer_name || '';
+
                 return (
                   <div
                     key={tab.id}
@@ -836,23 +1046,70 @@ export default function CajaDashboard({ tablesOverview, stats, onStateChange, on
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.85rem' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                           <div style={{
-                            width: '42px',
-                            height: '42px',
+                            width: '44px',
+                            height: '44px',
                             borderRadius: 'var(--radius-md)',
                             background: 'rgba(251, 191, 36, 0.15)',
                             color: 'var(--color-gold)',
                             display: 'flex',
                             alignItems: 'center',
-                            justifyContent: 'center'
+                            justifyContent: 'center',
+                            fontWeight: 900
                           }}>
                             <Coffee size={22} />
                           </div>
                           <div>
-                            <h3 style={{ fontSize: '1.15rem', fontWeight: 800, color: '#fff', margin: 0 }}>
-                              {tab.name}
-                            </h3>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--color-gold)', fontWeight: 700 }}>
-                              Barra / Salón • Sin cobro por tiempo
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                              <h3 style={{ fontSize: '1.15rem', fontWeight: 800, color: '#fff', margin: 0 }}>
+                                {displayLocation}
+                              </h3>
+                              <button
+                                onClick={() => {
+                                  setEditingBarTab(tab);
+                                  setIsOpenBarTabModal(true);
+                                }}
+                                title="Editar ubicación o nombre de la persona"
+                                style={{
+                                  background: 'rgba(255, 255, 255, 0.05)',
+                                  border: '1px solid var(--border-subtle)',
+                                  color: 'var(--text-muted)',
+                                  cursor: 'pointer',
+                                  padding: '3px 5px',
+                                  borderRadius: '4px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '2px',
+                                  fontSize: '0.68rem'
+                                }}
+                              >
+                                <Edit2 size={12} /> Editar
+                              </button>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '3px', flexWrap: 'wrap' }}>
+                              {displayCustomer ? (
+                                <span style={{
+                                  fontSize: '0.78rem',
+                                  color: 'var(--color-brand)',
+                                  fontWeight: 800,
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '0.25rem',
+                                  background: 'rgba(0, 230, 118, 0.12)',
+                                  padding: '2px 7px',
+                                  borderRadius: '4px',
+                                  border: '1px solid rgba(0, 230, 118, 0.3)'
+                                }}>
+                                  <User size={12} />
+                                  {displayCustomer}
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                                  Sin cliente asignado
+                                </span>
+                              )}
+                              <span style={{ fontSize: '0.72rem', color: 'var(--color-gold)', fontWeight: 600 }}>
+                                • Sin cobro por tiempo
+                              </span>
                             </div>
                           </div>
                         </div>
@@ -1022,12 +1279,216 @@ export default function CajaDashboard({ tablesOverview, stats, onStateChange, on
 
       <OpenBarTabModal
         isOpen={isOpenBarTabModal}
-        onClose={() => setIsOpenBarTabModal(false)}
+        initialData={editingBarTab}
+        onClose={() => {
+          setIsOpenBarTabModal(false);
+          setEditingBarTab(null);
+        }}
         onSuccess={() => {
           setActiveTabSection('barra');
+          setEditingBarTab(null);
           if (onStateChange) onStateChange();
         }}
       />
+
+      {/* Modal para Separar Consumo a Cuenta Personal */}
+      {separatingItem && (
+        <div
+          onClick={() => setSeparatingItem(null)}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(5, 8, 14, 0.88)',
+            backdropFilter: 'blur(10px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1100,
+            padding: '1rem',
+            cursor: 'pointer'
+          }}
+        >
+          <div
+            className="glass-panel"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: '100%',
+              maxWidth: '480px',
+              borderRadius: 'var(--radius-lg)',
+              overflow: 'hidden',
+              border: '1px solid var(--border-subtle)',
+              background: 'var(--bg-main)',
+              padding: '1.5rem',
+              cursor: 'default',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.8)'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                <div style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '50%',
+                  background: 'rgba(251, 191, 36, 0.15)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'var(--color-gold)'
+                }}>
+                  <User size={18} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: '1.15rem', fontWeight: 800, color: '#fff', margin: 0 }}>
+                    Separar a Cuenta Personal
+                  </h3>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                    Saca este consumo de la cuenta de Mesa {separatingItem.table_number}
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setSeparatingItem(null)}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.06)',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  borderRadius: '50%',
+                  width: '30px',
+                  height: '30px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div style={{
+              background: 'var(--bg-surface)',
+              padding: '0.85rem 1rem',
+              borderRadius: 'var(--radius-md)',
+              marginBottom: '1.25rem',
+              border: '1px solid var(--border-subtle)'
+            }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
+                Producto a separar:
+              </div>
+              <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#fff', marginTop: '2px' }}>
+                <span style={{ color: 'var(--color-brand)' }}>{separatingItem.quantity}x</span> {separatingItem.product_name}
+              </div>
+              <div className="mono" style={{ fontSize: '0.9rem', color: 'var(--color-gold)', fontWeight: 800, marginTop: '2px' }}>
+                {formatCurrency(separatingItem.subtotal)}
+              </div>
+            </div>
+
+            <form onSubmit={handleConfirmSeparateItem} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', fontWeight: 700, color: 'var(--color-gold)', marginBottom: '0.4rem' }}>
+                  <MapPin size={14} />
+                  1. Ubicación o Referencia:
+                </label>
+                <input
+                  type="text"
+                  value={separateLocation}
+                  onChange={(e) => setSeparateLocation(e.target.value)}
+                  placeholder={`Ej: Mesa ${separatingItem.table_number}, Barra 01...`}
+                  style={{
+                    width: '100%',
+                    padding: '0.75rem 1rem',
+                    borderRadius: 'var(--radius-md)',
+                    background: 'var(--bg-surface)',
+                    border: '1px solid var(--border-subtle)',
+                    color: '#fff',
+                    fontSize: '0.95rem',
+                    fontWeight: 600,
+                    boxSizing: 'border-box'
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', fontWeight: 700, color: 'var(--color-brand)', marginBottom: '0.4rem' }}>
+                  <User size={14} />
+                  2. Nombre del Cliente / Persona:
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={separateCustomer}
+                  onChange={(e) => setSeparateCustomer(e.target.value)}
+                  placeholder="Ej: Don Pedro, Carlos, El Paisa..."
+                  required
+                  style={{
+                    width: '100%',
+                    padding: '0.75rem 1rem',
+                    borderRadius: 'var(--radius-md)',
+                    background: 'var(--bg-surface)',
+                    border: '1px solid var(--border-subtle)',
+                    color: '#fff',
+                    fontSize: '0.95rem',
+                    fontWeight: 600,
+                    boxSizing: 'border-box'
+                  }}
+                />
+              </div>
+
+              <div style={{
+                background: 'rgba(251, 191, 36, 0.08)',
+                border: '1px solid rgba(251, 191, 36, 0.2)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '0.65rem 0.85rem',
+                fontSize: '0.75rem',
+                color: 'var(--color-gold)',
+                lineHeight: 1.4
+              }}>
+                ⚡ Al confirmar, este valor se restará del total de la Mesa {separatingItem.table_number} y pasará a una cuenta de barra independiente para cobrarle a esa persona por aparte.
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setSeparatingItem(null)}
+                  style={{
+                    flex: 1,
+                    padding: '0.8rem',
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    border: '1px solid var(--border-subtle)',
+                    color: 'var(--text-secondary)',
+                    borderRadius: 'var(--radius-md)',
+                    fontWeight: 700,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={separateLoading || !separateCustomer.trim()}
+                  style={{
+                    flex: 1.5,
+                    padding: '0.8rem',
+                    background: 'linear-gradient(135deg, #00e676, #008744)',
+                    border: 'none',
+                    color: '#090d16',
+                    borderRadius: 'var(--radius-md)',
+                    fontWeight: 800,
+                    fontSize: '0.95rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {separateLoading ? 'Separando...' : 'Separar Consumo'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

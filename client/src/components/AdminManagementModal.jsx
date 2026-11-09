@@ -25,18 +25,78 @@ import {
   Eye,
   EyeOff,
   UserCheck,
-  UserX
+  UserX,
+  Key,
+  Copy,
+  Globe,
+  Coins,
+  Sparkles,
+  AlertTriangle,
+  Send,
+  Bell,
+  MessageSquare,
+  MessageCircle,
+  Sun,
+  Moon,
+  Share2
 } from 'lucide-react';
-import { formatCurrency } from '../utils/formatters';
+import { formatCurrency, setCurrencyConfig } from '../utils/formatters';
 import { sounds } from '../utils/audio';
 import { api } from '../services/api';
 
-export default function AdminManagementModal({ isOpen, onClose, onRefreshData }) {
-  const [activeTab, setActiveTab] = useState('inventory'); // 'inventory' | 'tables' | 'business' | 'staff'
+const CURRENCY_PRESETS = [
+  { label: '🇨🇴 Colombia (COP - $)', symbol: '$', code: 'COP', locale: 'es-CO', decimals: 0 },
+  { label: '🇲🇽 México (MXN - $)', symbol: '$', code: 'MXN', locale: 'es-MX', decimals: 2 },
+  { label: '🇵🇪 Perú (PEN - S/.)', symbol: 'S/.', code: 'PEN', locale: 'es-PE', decimals: 2 },
+  { label: '🇺🇸 Estados Unidos / Dólar (USD - $)', symbol: '$', code: 'USD', locale: 'en-US', decimals: 2 },
+  { label: '🇨🇱 Chile (CLP - $)', symbol: '$', code: 'CLP', locale: 'es-CL', decimals: 0 },
+  { label: '🇪🇸 España / Euro (EUR - €)', symbol: '€', code: 'EUR', locale: 'es-ES', decimals: 2 },
+  { label: '🇦🇷 Argentina (ARS - $)', symbol: '$', code: 'ARS', locale: 'es-AR', decimals: 2 },
+  { label: '🇪🇨 Ecuador (USD - $)', symbol: '$', code: 'USD', locale: 'es-EC', decimals: 2 },
+  { label: '🇧🇴 Bolivia (BOB - Bs)', symbol: 'Bs', code: 'BOB', locale: 'es-BO', decimals: 2 },
+  { label: '🌐 Otra moneda personalizada', symbol: '$', code: 'CUSTOM', locale: 'es-CO', decimals: 0 }
+];
+
+export default function AdminManagementModal({ isOpen, onClose, onRefreshData, theme = 'dark', onToggleTheme = () => {}, initialTab = 'inventory' }) {
+  const [activeTab, setActiveTab] = useState(() => {
+    if (typeof initialTab === 'string') {
+      if (initialTab === 'inventory-low-stock' || initialTab === 'low-stock') return 'inventory';
+      return initialTab;
+    }
+    return 'inventory';
+  });
+
   const [products, setProducts] = useState([]);
   const [tables, setTables] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Todas');
+  const [filterLowStockOnly, setFilterLowStockOnly] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      if (typeof initialTab === 'string') {
+        if (initialTab === 'inventory-low-stock' || initialTab === 'low-stock') {
+          setActiveTab('inventory');
+          setFilterLowStockOnly(true);
+          setSelectedCategory('Todas');
+          setSearchQuery('');
+        } else {
+          setActiveTab(initialTab);
+          setFilterLowStockOnly(false);
+        }
+      } else {
+        setActiveTab('inventory');
+        setFilterLowStockOnly(false);
+      }
+    }
+  }, [isOpen, initialTab]);
+
+  // License state
+  const [licenseData, setLicenseData] = useState(null);
+  const [licenseInput, setLicenseInput] = useState('');
+  const [activatingLicense, setActivatingLicense] = useState(false);
+  const [licenseMsg, setLicenseMsg] = useState(null);
+  const [copiedMid, setCopiedMid] = useState(false);
 
   // Staff & Waiters state
   const [staffList, setStaffList] = useState([]);
@@ -62,7 +122,14 @@ export default function AdminManagementModal({ isOpen, onClose, onRefreshData })
     business_address: '',
     ticket_footer: '',
     grace_period_minutes: '3',
-    rounding_mode: 'exact'
+    rounding_mode: 'exact',
+    currency_symbol: '$',
+    currency_code: 'COP',
+    currency_locale: 'es-CO',
+    currency_decimals: '0',
+    owner_whatsapp: '',
+    notify_whatsapp_on_close: '1',
+    app_theme: 'dark'
   });
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsSuccess, setSettingsSuccess] = useState(false);
@@ -75,13 +142,13 @@ export default function AdminManagementModal({ isOpen, onClose, onRefreshData })
   const [formPrice, setFormPrice] = useState('');
   const [formStock, setFormStock] = useState('');
   const [formMinStock, setFormMinStock] = useState('10');
-  const [filterLowStockOnly, setFilterLowStockOnly] = useState(false);
 
   // Table editing
   const [editingTableId, setEditingTableId] = useState(null);
   const [editTableName, setEditTableName] = useState('');
   const [editTableRate, setEditTableRate] = useState('');
   const [editTableType, setEditTableType] = useState('pool');
+  const [editTableStatus, setEditTableStatus] = useState('available');
 
   // New table form
   const [showNewTableForm, setShowNewTableForm] = useState(false);
@@ -89,6 +156,7 @@ export default function AdminManagementModal({ isOpen, onClose, onRefreshData })
   const [newTableName, setNewTableName] = useState('');
   const [newTableRate, setNewTableRate] = useState('8000');
   const [newTableType, setNewTableType] = useState('pool');
+  const [newTableStatus, setNewTableStatus] = useState('available');
 
   useEffect(() => {
     if (isOpen) {
@@ -98,20 +166,23 @@ export default function AdminManagementModal({ isOpen, onClose, onRefreshData })
 
   const loadData = async () => {
     try {
-      const [prodRes, tablesRes, settingsRes, staffRes, waiterSalesRes] = await Promise.all([
+      const [prodRes, tablesRes, settingsRes, staffRes, waiterSalesRes, licenseRes] = await Promise.all([
         api.getAdminProducts(),
         api.getTables(),
         api.getSettings(),
         api.getAdminStaff().catch(() => ({ success: false })),
-        api.getWaiterSales(staffPeriod).catch(() => ({ success: false }))
+        api.getWaiterSales(staffPeriod).catch(() => ({ success: false })),
+        api.getLicense().catch(() => ({ success: false }))
       ]);
       if (prodRes?.success) setProducts(prodRes.data);
       if (tablesRes?.success) setTables(tablesRes.data);
       if (settingsRes?.success && settingsRes.data) {
         setBusinessForm(prev => ({ ...prev, ...settingsRes.data }));
+        setCurrencyConfig(settingsRes.data);
       }
       if (staffRes?.success) setStaffList(staffRes.data);
       if (waiterSalesRes?.success) setWaiterSales(waiterSalesRes.data);
+      if (licenseRes?.success) setLicenseData(licenseRes.data);
     } catch (e) {
       console.error('Error cargando datos de administración:', e);
     }
@@ -126,6 +197,7 @@ export default function AdminManagementModal({ isOpen, onClose, onRefreshData })
       for (const [key, val] of Object.entries(businessForm)) {
         await api.updateSetting(key, val);
       }
+      setCurrencyConfig(businessForm);
       sounds.playCashRegister();
       setSettingsSuccess(true);
       setTimeout(() => setSettingsSuccess(false), 3000);
@@ -135,6 +207,83 @@ export default function AdminManagementModal({ isOpen, onClose, onRefreshData })
     } finally {
       setSavingSettings(false);
     }
+  };
+
+  const handleCurrencyPresetChange = (presetLabel) => {
+    const found = CURRENCY_PRESETS.find(p => p.label === presetLabel);
+    if (found) {
+      setBusinessForm(prev => ({
+        ...prev,
+        currency_symbol: found.symbol,
+        currency_code: found.code,
+        currency_locale: found.locale,
+        currency_decimals: String(found.decimals)
+      }));
+    }
+  };
+
+  const handleCopyMachineId = () => {
+    if (licenseData?.machineId) {
+      navigator.clipboard.writeText(licenseData.machineId);
+      setCopiedMid(true);
+      sounds.playScoreBeep(true);
+      setTimeout(() => setCopiedMid(false), 2500);
+    }
+  };
+
+  const handleActivateLicense = async (e) => {
+    e.preventDefault();
+    if (!licenseInput.trim()) return;
+    setActivatingLicense(true);
+    setLicenseMsg(null);
+    try {
+      const res = await api.activateLicense(licenseInput.trim());
+      if (res.success) {
+        sounds.playCashRegister();
+        setLicenseData(res.data);
+        setLicenseMsg({ type: 'success', text: res.message || '¡Licencia activada con éxito!' });
+        setLicenseInput('');
+        if (onRefreshData) onRefreshData();
+      } else {
+        sounds.playError();
+        setLicenseMsg({ type: 'error', text: res.error || 'Clave de licencia inválida o no corresponde a este equipo.' });
+      }
+    } catch (err) {
+      sounds.playError();
+      setLicenseMsg({ type: 'error', text: err.message || 'Error de conexión' });
+    } finally {
+      setActivatingLicense(false);
+    }
+  };
+
+  const handleTestWhatsApp = () => {
+    if (!businessForm.owner_whatsapp || !businessForm.owner_whatsapp.trim()) {
+      sounds.playError();
+      alert('Por favor escribe el número de WhatsApp del dueño antes de probar.');
+      return;
+    }
+    sounds.playScoreBeep(true);
+    const clubName = businessForm.business_name || 'BILLARPULSE';
+    const now = new Date().toLocaleTimeString(businessForm.currency_locale || 'es-CO');
+    const msg = [
+      `🎱 *¡HOLA DESDE BILLARPULSE!*`,
+      `🏢 *Club:* ${clubName}`,
+      `🕒 *Hora:* ${now}`,
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+      `✅ Las alertas automáticas por WhatsApp están vinculadas correctamente a este número.`,
+      `📲 Cada vez que un cajero realice el *Cierre de Turno (Corte Z)* recibirás el resumen financiero completo aquí.`,
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+      `_BillarPulse POS - Control Total en la Palma de tu Mano_`
+    ].join('\n');
+
+    let cleanPhone = businessForm.owner_whatsapp.replace(/[^\d+]/g, '');
+    if (!cleanPhone.startsWith('+') && cleanPhone.length === 10 && cleanPhone.startsWith('3')) {
+      cleanPhone = '57' + cleanPhone;
+    }
+    cleanPhone = cleanPhone.replace('+', '');
+
+    const url = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(msg)}`;
+    window.open(url, '_blank');
   };
 
   const handleLoadWaiterSales = async (period) => {
@@ -316,6 +465,7 @@ export default function AdminManagementModal({ isOpen, onClose, onRefreshData })
     setEditTableName(table.name);
     setEditTableRate(String(table.hourly_rate));
     setEditTableType(table.type);
+    setEditTableStatus(table.status || 'available');
   };
 
   const saveEditTable = async (tableId) => {
@@ -324,13 +474,46 @@ export default function AdminManagementModal({ isOpen, onClose, onRefreshData })
       await api.updateTable(tableId, {
         name: editTableName,
         hourly_rate: Number(editTableRate),
-        type: editTableType
+        type: editTableType,
+        status: editTableStatus
       });
       setEditingTableId(null);
       loadData();
       if (onRefreshData) onRefreshData();
     } catch (err) {
       alert('Error actualizando mesa: ' + err.message);
+    }
+  };
+
+  const handleToggleTableMaintenance = async (table) => {
+    try {
+      sounds.playScoreBeep(true);
+      const nextStatus = table.status === 'maintenance' ? 'available' : 'maintenance';
+      await api.updateTable(table.id, { status: nextStatus });
+      sounds.playCashRegister();
+      loadData();
+      if (onRefreshData) onRefreshData();
+    } catch (err) {
+      sounds.playError();
+      alert('Error cambiando estado de mantenimiento: ' + err.message);
+    }
+  };
+
+  const handleDeleteTable = async (table) => {
+    if (table.status === 'occupied') {
+      sounds.playError();
+      alert('No puedes eliminar una mesa con partida en curso. Debes finalizar o cobrar la partida primero.');
+      return;
+    }
+    if (!confirm(`¿Estás seguro de archivar/eliminar la Mesa ${table.table_number} (${table.name})?`)) return;
+    try {
+      sounds.playScoreBeep(false);
+      await api.deleteTable(table.id);
+      loadData();
+      if (onRefreshData) onRefreshData();
+    } catch (err) {
+      sounds.playError();
+      alert('Error eliminando mesa: ' + err.message);
     }
   };
 
@@ -342,17 +525,21 @@ export default function AdminManagementModal({ isOpen, onClose, onRefreshData })
     try {
       sounds.playCashRegister();
       await api.createTable({
-        table_number: newTableNum,
-        name: newTableName,
+        table_number: newTableNum.trim(),
+        name: newTableName.trim(),
         type: newTableType,
-        hourly_rate: Number(newTableRate)
+        hourly_rate: Number(newTableRate),
+        status: newTableStatus
       });
       setShowNewTableForm(false);
       setNewTableNum('');
       setNewTableName('');
+      setNewTableRate('8000');
+      setNewTableStatus('available');
       loadData();
       if (onRefreshData) onRefreshData();
     } catch (err) {
+      sounds.playError();
       alert('Error creando mesa: ' + err.message);
     }
   };
@@ -482,6 +669,36 @@ export default function AdminManagementModal({ isOpen, onClose, onRefreshData })
                 <Users size={16} />
                 Personal & Meseros ({staffList.length})
               </button>
+
+              <button
+                onClick={() => setActiveTab('license')}
+                style={{
+                  padding: '0.45rem 1rem',
+                  borderRadius: 'var(--radius-sm)',
+                  background: activeTab === 'license' ? 'var(--color-brand)' : 'transparent',
+                  color: activeTab === 'license' ? '#090d16' : 'var(--text-secondary)',
+                  fontWeight: 700,
+                  fontSize: '0.85rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem'
+                }}
+              >
+                <Key size={16} />
+                Licencia & Activación
+                {licenseData?.status === 'trial' && (
+                  <span style={{
+                    fontSize: '0.65rem',
+                    padding: '2px 6px',
+                    borderRadius: '10px',
+                    background: 'rgba(234, 179, 8, 0.25)',
+                    color: '#facc15',
+                    fontWeight: 800
+                  }}>
+                    DEMO
+                  </span>
+                )}
+              </button>
             </div>
           </div>
 
@@ -594,6 +811,43 @@ export default function AdminManagementModal({ isOpen, onClose, onRefreshData })
                 </button>
               </div>
 
+              {/* Low stock active banner */}
+              {filterLowStockOnly && (
+                <div style={{
+                  padding: '0.65rem 1rem',
+                  background: 'rgba(251, 191, 36, 0.1)',
+                  border: '1px solid rgba(251, 191, 36, 0.3)',
+                  borderRadius: 'var(--radius-sm)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '1rem',
+                  fontSize: '0.82rem',
+                  color: 'var(--color-gold)'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <AlertTriangle size={16} />
+                    <span><b>Filtro de Stock Bajo:</b> Mostrando {filteredProducts.length} producto(s) en alerta o agotados.</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setFilterLowStockOnly(false)}
+                    style={{
+                      background: 'rgba(255, 255, 255, 0.08)',
+                      border: '1px solid var(--border-subtle)',
+                      color: '#fff',
+                      padding: '3px 9px',
+                      borderRadius: '4px',
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Ver todos ({products.length})
+                  </button>
+                </div>
+              )}
+
               {/* Products Table */}
               <div style={{
                 borderRadius: 'var(--radius-md)',
@@ -613,7 +867,35 @@ export default function AdminManagementModal({ isOpen, onClose, onRefreshData })
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredProducts.map(p => {
+                    {filteredProducts.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                          <Package size={36} color="var(--text-muted)" style={{ margin: '0 auto 0.5rem' }} />
+                          <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#fff' }}>
+                            {filterLowStockOnly ? 'No hay productos con stock bajo en este momento' : 'No se encontraron productos'}
+                          </div>
+                          {filterLowStockOnly && (
+                            <button
+                              type="button"
+                              onClick={() => setFilterLowStockOnly(false)}
+                              style={{
+                                marginTop: '0.75rem',
+                                padding: '0.4rem 0.85rem',
+                                background: 'rgba(255, 255, 255, 0.08)',
+                                border: '1px solid var(--border-subtle)',
+                                color: 'var(--color-brand)',
+                                borderRadius: 'var(--radius-sm)',
+                                fontSize: '0.8rem',
+                                fontWeight: 700,
+                                cursor: 'pointer'
+                              }}
+                            >
+                              Ver inventario completo
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ) : filteredProducts.map(p => {
                       const threshold = p.min_stock != null ? p.min_stock : 10;
                       const isOutStock = p.stock <= 0;
                       const isLowStock = p.stock <= threshold && !isOutStock;
@@ -780,7 +1062,7 @@ export default function AdminManagementModal({ isOpen, onClose, onRefreshData })
                     borderRadius: 'var(--radius-md)',
                     padding: '1.25rem',
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(4, 1fr) auto',
+                    gridTemplateColumns: 'repeat(5, 1fr) auto',
                     gap: '1rem',
                     alignItems: 'end'
                   }}
@@ -845,9 +1127,10 @@ export default function AdminManagementModal({ isOpen, onClose, onRefreshData })
                         fontWeight: 600
                       }}
                     >
-                      <option value="pool">Pool</option>
+                      <option value="pool">Pool / Bola 8</option>
                       <option value="tres_bandas">Tres Bandas</option>
-                      <option value="snooker">Snooker</option>
+                      <option value="snooker">Snooker VIP</option>
+                      <option value="carambola">Carambola Libre</option>
                     </select>
                   </div>
 
@@ -873,6 +1156,28 @@ export default function AdminManagementModal({ isOpen, onClose, onRefreshData })
                     />
                   </div>
 
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                      ESTADO INICIAL
+                    </label>
+                    <select
+                      value={newTableStatus}
+                      onChange={(e) => setNewTableStatus(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '0.55rem',
+                        background: 'var(--bg-card)',
+                        border: '1px solid var(--border-subtle)',
+                        borderRadius: 'var(--radius-sm)',
+                        color: '#fff',
+                        fontWeight: 700
+                      }}
+                    >
+                      <option value="available">🟢 Disponible para juego</option>
+                      <option value="maintenance">🛠️ En mantenimiento / Reparación</option>
+                    </select>
+                  </div>
+
                   <button
                     type="submit"
                     style={{
@@ -881,7 +1186,10 @@ export default function AdminManagementModal({ isOpen, onClose, onRefreshData })
                       fontWeight: 800,
                       padding: '0.6rem 1.25rem',
                       borderRadius: 'var(--radius-sm)',
-                      gap: '0.35rem'
+                      gap: '0.35rem',
+                      cursor: 'pointer',
+                      border: 'none',
+                      boxShadow: 'var(--shadow-neon-green)'
                     }}
                   >
                     <Check size={16} />
@@ -1010,52 +1318,142 @@ export default function AdminManagementModal({ isOpen, onClose, onRefreshData })
                           </td>
 
                           <td style={{ padding: '0.75rem 1rem' }}>
-                            <span style={{
-                              padding: '2px 8px',
-                              borderRadius: '4px',
-                              fontSize: '0.75rem',
-                              fontWeight: 700,
-                              background: t.status === 'occupied' ? 'rgba(59, 130, 246, 0.15)' : 'rgba(0, 230, 118, 0.15)',
-                              color: t.status === 'occupied' ? 'var(--color-blue)' : 'var(--color-brand)'
-                            }}>
-                              {t.status === 'occupied' ? 'EN PARTIDA' : 'DISPONIBLE'}
-                            </span>
+                            {isEditing ? (
+                              <select
+                                value={editTableStatus}
+                                onChange={(e) => setEditTableStatus(e.target.value)}
+                                disabled={t.status === 'occupied'}
+                                style={{
+                                  background: 'var(--bg-surface)',
+                                  border: '1px solid var(--color-brand)',
+                                  borderRadius: '4px',
+                                  color: '#fff',
+                                  padding: '4px 8px',
+                                  fontSize: '0.85rem'
+                                }}
+                              >
+                                <option value="available">🟢 Disponible</option>
+                                <option value="maintenance">🛠️ En Mantenimiento</option>
+                                {t.status === 'occupied' && <option value="occupied">🔵 En Partida</option>}
+                              </select>
+                            ) : (
+                              <span style={{
+                                padding: '3px 8px',
+                                borderRadius: '4px',
+                                fontSize: '0.75rem',
+                                fontWeight: 800,
+                                background: t.status === 'occupied' 
+                                  ? 'rgba(59, 130, 246, 0.15)' 
+                                  : t.status === 'maintenance'
+                                    ? 'rgba(251, 191, 36, 0.15)'
+                                    : 'rgba(0, 230, 118, 0.15)',
+                                color: t.status === 'occupied' 
+                                  ? 'var(--color-blue)' 
+                                  : t.status === 'maintenance'
+                                    ? 'var(--color-gold)'
+                                    : 'var(--color-brand)',
+                                border: `1px solid ${t.status === 'occupied' ? 'rgba(59,130,246,0.3)' : t.status === 'maintenance' ? 'rgba(251,191,36,0.4)' : 'rgba(0,230,118,0.3)'}`
+                              }}>
+                                {t.status === 'occupied' ? '🔵 EN PARTIDA' : t.status === 'maintenance' ? '🛠️ MANTENIMIENTO' : '🟢 DISPONIBLE'}
+                              </span>
+                            )}
                           </td>
 
                           <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
-                            {isEditing ? (
-                              <button
-                                onClick={() => saveEditTable(t.id)}
-                                style={{
-                                  background: 'var(--color-brand)',
-                                  color: '#090d16',
-                                  padding: '0.35rem 0.75rem',
-                                  borderRadius: '4px',
-                                  fontWeight: 800,
-                                  fontSize: '0.75rem',
-                                  gap: '0.25rem'
-                                }}
-                              >
-                                <Save size={13} />
-                                Guardar
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => startEditTable(t)}
-                                style={{
-                                  background: 'rgba(255, 255, 255, 0.06)',
-                                  color: 'var(--text-secondary)',
-                                  border: '1px solid var(--border-subtle)',
-                                  padding: '0.35rem 0.65rem',
-                                  borderRadius: '4px',
-                                  fontSize: '0.75rem',
-                                  gap: '0.25rem'
-                                }}
-                              >
-                                <Edit2 size={13} />
-                                Modificar Tarifa
-                              </button>
-                            )}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                              {isEditing ? (
+                                <>
+                                  <button
+                                    onClick={() => saveEditTable(t.id)}
+                                    style={{
+                                      background: 'var(--color-brand)',
+                                      color: '#090d16',
+                                      padding: '0.35rem 0.75rem',
+                                      borderRadius: '4px',
+                                      fontWeight: 800,
+                                      fontSize: '0.75rem',
+                                      gap: '0.25rem',
+                                      border: 'none',
+                                      cursor: 'pointer'
+                                    }}
+                                  >
+                                    <Save size={13} />
+                                    Guardar
+                                  </button>
+                                  <button
+                                    onClick={() => setEditingTableId(null)}
+                                    style={{
+                                      background: 'rgba(255, 255, 255, 0.08)',
+                                      color: 'var(--text-secondary)',
+                                      border: '1px solid var(--border-subtle)',
+                                      padding: '0.35rem 0.65rem',
+                                      borderRadius: '4px',
+                                      fontSize: '0.75rem',
+                                      cursor: 'pointer'
+                                    }}
+                                  >
+                                    Cancelar
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    onClick={() => startEditTable(t)}
+                                    style={{
+                                      background: 'rgba(255, 255, 255, 0.06)',
+                                      color: 'var(--text-secondary)',
+                                      border: '1px solid var(--border-subtle)',
+                                      padding: '0.35rem 0.65rem',
+                                      borderRadius: '4px',
+                                      fontSize: '0.75rem',
+                                      gap: '0.25rem',
+                                      cursor: 'pointer'
+                                    }}
+                                  >
+                                    <Edit2 size={13} />
+                                    Editar
+                                  </button>
+
+                                  {t.status !== 'occupied' && (
+                                    <button
+                                      onClick={() => handleToggleTableMaintenance(t)}
+                                      title={t.status === 'maintenance' ? 'Habilitar mesa para juego' : 'Poner mesa en mantenimiento (cambio de paño / reparación)'}
+                                      style={{
+                                        background: t.status === 'maintenance' ? 'rgba(0, 230, 118, 0.15)' : 'rgba(251, 191, 36, 0.15)',
+                                        color: t.status === 'maintenance' ? 'var(--color-brand)' : 'var(--color-gold)',
+                                        border: `1px solid ${t.status === 'maintenance' ? 'rgba(0,230,118,0.35)' : 'rgba(251,191,36,0.35)'}`,
+                                        padding: '0.35rem 0.65rem',
+                                        borderRadius: '4px',
+                                        fontSize: '0.75rem',
+                                        fontWeight: 700,
+                                        gap: '0.25rem',
+                                        cursor: 'pointer'
+                                      }}
+                                    >
+                                      {t.status === 'maintenance' ? '✅ Habilitar' : '🛠️ Mantenimiento'}
+                                    </button>
+                                  )}
+
+                                  {t.status !== 'occupied' && (
+                                    <button
+                                      onClick={() => handleDeleteTable(t)}
+                                      title="Archivar / Eliminar mesa"
+                                      style={{
+                                        background: 'rgba(239, 68, 68, 0.12)',
+                                        color: 'var(--color-alert)',
+                                        border: '1px solid rgba(239, 68, 68, 0.3)',
+                                        padding: '0.35rem 0.55rem',
+                                        borderRadius: '4px',
+                                        fontSize: '0.75rem',
+                                        cursor: 'pointer'
+                                      }}
+                                    >
+                                      <Trash2 size={13} />
+                                    </button>
+                                  )}
+                                </>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1240,6 +1638,136 @@ export default function AdminManagementModal({ isOpen, onClose, onRefreshData })
                     </div>
                   </div>
 
+                  {/* Currency & Regional Settings */}
+                  <div style={{
+                    marginTop: '0.25rem',
+                    padding: '1rem',
+                    background: 'rgba(255, 255, 255, 0.02)',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid rgba(255, 255, 255, 0.08)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.75rem'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Globe size={18} color="var(--color-brand)" />
+                      <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#fff' }}>
+                        Moneda & Formato Regional
+                      </span>
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                        PAÍS / PREAJUSTE RÁPIDO
+                      </label>
+                      <select
+                        onChange={(e) => handleCurrencyPresetChange(e.target.value)}
+                        defaultValue=""
+                        style={{
+                          width: '100%',
+                          padding: '0.55rem 0.75rem',
+                          background: 'rgba(0, 0, 0, 0.5)',
+                          border: '1px solid var(--border-subtle)',
+                          borderRadius: 'var(--radius-sm)',
+                          color: '#fff',
+                          fontSize: '0.85rem',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <option value="" disabled>Seleccionar país o moneda...</option>
+                        {CURRENCY_PRESETS.map((p) => (
+                          <option key={p.label} value={p.label}>
+                            {p.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                          SÍMBOLO
+                        </label>
+                        <input
+                          type="text"
+                          value={businessForm.currency_symbol || '$'}
+                          onChange={(e) => setBusinessForm({ ...businessForm, currency_symbol: e.target.value })}
+                          placeholder="$"
+                          style={{
+                            width: '100%',
+                            padding: '0.5rem 0.65rem',
+                            background: 'rgba(0, 0, 0, 0.4)',
+                            border: '1px solid var(--border-subtle)',
+                            borderRadius: 'var(--radius-sm)',
+                            color: '#fff',
+                            fontSize: '0.85rem',
+                            fontWeight: 700
+                          }}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                          CÓDIGO ISO
+                        </label>
+                        <input
+                          type="text"
+                          value={businessForm.currency_code || 'COP'}
+                          onChange={(e) => setBusinessForm({ ...businessForm, currency_code: e.target.value.toUpperCase() })}
+                          placeholder="COP"
+                          style={{
+                            width: '100%',
+                            padding: '0.5rem 0.65rem',
+                            background: 'rgba(0, 0, 0, 0.4)',
+                            border: '1px solid var(--border-subtle)',
+                            borderRadius: 'var(--radius-sm)',
+                            color: '#fff',
+                            fontSize: '0.85rem'
+                          }}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                          DECIMALES
+                        </label>
+                        <select
+                          value={businessForm.currency_decimals || '0'}
+                          onChange={(e) => setBusinessForm({ ...businessForm, currency_decimals: e.target.value })}
+                          style={{
+                            width: '100%',
+                            padding: '0.5rem 0.65rem',
+                            background: 'rgba(0, 0, 0, 0.4)',
+                            border: '1px solid var(--border-subtle)',
+                            borderRadius: 'var(--radius-sm)',
+                            color: '#fff',
+                            fontSize: '0.85rem'
+                          }}
+                        >
+                          <option value="0">0 (ej. $ 8.000)</option>
+                          <option value="2">2 (ej. $ 8.00)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Live Preview Pill */}
+                    <div style={{
+                      background: 'rgba(0, 230, 153, 0.08)',
+                      border: '1px dashed rgba(0, 230, 153, 0.3)',
+                      borderRadius: 'var(--radius-sm)',
+                      padding: '0.5rem 0.75rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      fontSize: '0.78rem'
+                    }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>Vista previa en precios:</span>
+                      <span style={{ color: 'var(--color-brand)', fontWeight: 800 }}>
+                        Hora: {formatCurrency(10000, businessForm)} | Producto: {formatCurrency(4500, businessForm)}
+                      </span>
+                    </div>
+                  </div>
+
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.5rem' }}>
                     {settingsSuccess && (
                       <span style={{ color: 'var(--color-brand)', fontSize: '0.85rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
@@ -1273,6 +1801,183 @@ export default function AdminManagementModal({ isOpen, onClose, onRefreshData })
 
               {/* Right Column: Database Backup & Local LAN Status */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                {/* WhatsApp Notifications Card */}
+                <div style={{
+                  background: 'linear-gradient(135deg, rgba(37, 211, 102, 0.12), rgba(18, 140, 126, 0.05))',
+                  border: '1px solid rgba(37, 211, 102, 0.35)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '1.5rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '1rem'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    <div style={{
+                      width: '34px',
+                      height: '34px',
+                      borderRadius: '8px',
+                      background: 'rgba(37, 211, 102, 0.2)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#25D366'
+                    }}>
+                      <MessageCircle size={20} />
+                    </div>
+                    <div>
+                      <h4 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#fff', margin: 0 }}>
+                        Alertas al WhatsApp del Dueño
+                      </h4>
+                      <div style={{ fontSize: '0.72rem', color: '#25D366', fontWeight: 700 }}>
+                        Cierre de Turno & Arqueo Z en 1 Clic
+                      </div>
+                    </div>
+                  </div>
+
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.4, margin: 0 }}>
+                    Al realizar el <strong>Cierre de Turno (Corte Z)</strong>, el cajero tendrá un botón directo de 1 clic para enviar el informe consolidado a tu WhatsApp personal con el total facturado, efectivo vs transferencias y descuadres.
+                  </p>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '3px' }}>
+                        NÚMERO DE WHATSAPP DEL DUEÑO
+                      </label>
+                      <input
+                        type="text"
+                        value={businessForm.owner_whatsapp || ''}
+                        onChange={(e) => setBusinessForm({ ...businessForm, owner_whatsapp: e.target.value })}
+                        placeholder="Ej: +57 300 123 4567 (con código de país)"
+                        style={{
+                          width: '100%',
+                          padding: '0.6rem 0.75rem',
+                          background: 'rgba(0, 0, 0, 0.45)',
+                          border: '1px solid var(--border-subtle)',
+                          borderRadius: 'var(--radius-sm)',
+                          color: '#fff',
+                          fontSize: '0.85rem',
+                          fontFamily: 'monospace'
+                        }}
+                      />
+                    </div>
+
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      background: 'rgba(0,0,0,0.25)',
+                      padding: '0.5rem 0.65rem',
+                      borderRadius: 'var(--radius-sm)'
+                    }}>
+                      <input
+                        type="checkbox"
+                        id="notify_close_check"
+                        checked={businessForm.notify_whatsapp_on_close !== '0'}
+                        onChange={(e) => setBusinessForm({ ...businessForm, notify_whatsapp_on_close: e.target.checked ? '1' : '0' })}
+                        style={{ width: '16px', height: '16px', accentColor: '#25D366', cursor: 'pointer' }}
+                      />
+                      <label htmlFor="notify_close_check" style={{ fontSize: '0.78rem', color: '#fff', cursor: 'pointer', userSelect: 'none' }}>
+                        Habilitar botón de WhatsApp en Cierres de Turno
+                      </label>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem' }}>
+                      <button
+                        type="button"
+                        onClick={handleTestWhatsApp}
+                        style={{
+                          flex: 1,
+                          padding: '0.65rem',
+                          background: 'rgba(37, 211, 102, 0.2)',
+                          color: '#25D366',
+                          border: '1px solid rgba(37, 211, 102, 0.5)',
+                          borderRadius: 'var(--radius-sm)',
+                          fontWeight: 800,
+                          fontSize: '0.82rem',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '0.4rem',
+                          cursor: 'pointer',
+                          boxShadow: '0 0 12px rgba(37, 211, 102, 0.2)'
+                        }}
+                      >
+                        <MessageCircle size={15} />
+                        Probar Envío a mi WhatsApp
+                      </button>
+                    </div>
+
+                    <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', lineHeight: 1.35 }}>
+                      💡 <strong>Cero costo y cero configuraciones complejas:</strong> No necesitas crear bots ni pagar APIs. El sistema abre la conversación con el reporte listo para enviar.
+                    </div>
+                  </div>
+                </div>
+
+                {/* Theme Selector Card */}
+                <div style={{
+                  background: 'var(--bg-surface)',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '1.25rem'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                    <Sun size={18} color="var(--color-gold)" />
+                    <span style={{ fontSize: '0.9rem', fontWeight: 800, color: '#fff' }}>
+                      Tema Visual del Sistema
+                    </span>
+                  </div>
+
+                  <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '0 0 0.85rem 0' }}>
+                    Elige la apariencia visual para las pantallas de este establecimiento:
+                  </p>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
+                    <button
+                      type="button"
+                      onClick={() => { if (theme !== 'dark') onToggleTheme(); }}
+                      style={{
+                        padding: '0.65rem 0.75rem',
+                        borderRadius: 'var(--radius-sm)',
+                        background: theme === 'dark' ? 'rgba(0, 230, 118, 0.15)' : 'rgba(0, 0, 0, 0.2)',
+                        border: `1px solid ${theme === 'dark' ? 'var(--color-brand)' : 'var(--border-subtle)'}`,
+                        color: theme === 'dark' ? 'var(--color-brand)' : 'var(--text-secondary)',
+                        fontWeight: 700,
+                        fontSize: '0.82rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '0.4rem',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <Moon size={15} />
+                      Modo Oscuro (OLED)
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => { if (theme !== 'light') onToggleTheme(); }}
+                      style={{
+                        padding: '0.65rem 0.75rem',
+                        borderRadius: 'var(--radius-sm)',
+                        background: theme === 'light' ? 'rgba(14, 165, 233, 0.15)' : 'rgba(0, 0, 0, 0.2)',
+                        border: `1px solid ${theme === 'light' ? 'var(--color-blue)' : 'var(--border-subtle)'}`,
+                        color: theme === 'light' ? 'var(--color-blue)' : 'var(--text-secondary)',
+                        fontWeight: 700,
+                        fontSize: '0.82rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '0.4rem',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <Sun size={15} color={theme === 'light' ? 'var(--color-blue)' : 'currentColor'} />
+                      Modo Claro (Día)
+                    </button>
+                  </div>
+                </div>
+
                 {/* Backup Card */}
                 <div style={{
                   background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(30, 58, 138, 0.05))',
@@ -1841,6 +2546,286 @@ export default function AdminManagementModal({ isOpen, onClose, onRefreshData })
                     )}
                   </div>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* ================= TAB 5: LICENCIA & ACTIVACIÓN COMERCIAL ================= */}
+          {activeTab === 'license' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+              {/* Machine ID Box */}
+              <div style={{
+                background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(10, 15, 26, 0.95) 100%)',
+                border: '1px solid rgba(16, 185, 129, 0.3)',
+                borderRadius: 'var(--radius-md)',
+                padding: '1.5rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '1.25rem'
+              }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.4rem' }}>
+                    <ShieldCheck size={20} color="var(--color-brand)" />
+                    <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--color-brand)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Identificador de Hardware de este Equipo
+                    </span>
+                  </div>
+                  <div style={{
+                    fontSize: '1.45rem',
+                    fontWeight: 900,
+                    fontFamily: 'monospace',
+                    letterSpacing: '2px',
+                    color: '#fff',
+                    textShadow: '0 0 10px rgba(0, 230, 153, 0.35)'
+                  }}>
+                    {licenseData?.machineId || 'Cargando...'}
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.35rem' }}>
+                    Proporciona este código a tu proveedor de <strong>BillarPulse</strong> para activar o renovar tu licencia comercial.
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleCopyMachineId}
+                  style={{
+                    padding: '0.75rem 1.4rem',
+                    background: copiedMid ? 'var(--color-brand)' : 'rgba(255, 255, 255, 0.08)',
+                    color: copiedMid ? '#090d16' : '#fff',
+                    borderRadius: 'var(--radius-sm)',
+                    fontWeight: 800,
+                    fontSize: '0.85rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    border: '1px solid rgba(255, 255, 255, 0.12)'
+                  }}
+                >
+                  {copiedMid ? <Check size={18} /> : <Copy size={18} />}
+                  {copiedMid ? '¡Copiado al Portapapeles!' : 'Copiar Machine ID'}
+                </button>
+              </div>
+
+              {/* Status Cards Grid */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+                gap: '1.25rem'
+              }}>
+                {/* Card 1: Estado y Plan */}
+                <div style={{
+                  background: 'var(--bg-surface)',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '1.25rem'
+                }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
+                    Estado de Licencia
+                  </div>
+
+                  <div style={{ marginBottom: '1rem' }}>
+                    {licenseData?.status === 'active' ? (
+                      <span style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.4rem',
+                        padding: '0.35rem 0.75rem',
+                        borderRadius: '20px',
+                        background: 'rgba(16, 185, 129, 0.15)',
+                        color: 'var(--color-brand)',
+                        fontWeight: 800,
+                        fontSize: '0.85rem'
+                      }}>
+                        <ShieldCheck size={16} /> ACTIVA & AUTORIZADA
+                      </span>
+                    ) : licenseData?.status === 'trial' ? (
+                      <span style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.4rem',
+                        padding: '0.35rem 0.75rem',
+                        borderRadius: '20px',
+                        background: 'rgba(234, 179, 8, 0.15)',
+                        color: '#facc15',
+                        fontWeight: 800,
+                        fontSize: '0.85rem'
+                      }}>
+                        <AlertTriangle size={16} /> MODO DE EVALUACIÓN
+                      </span>
+                    ) : (
+                      <span style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.4rem',
+                        padding: '0.35rem 0.75rem',
+                        borderRadius: '20px',
+                        background: 'rgba(239, 68, 68, 0.15)',
+                        color: '#f87171',
+                        fontWeight: 800,
+                        fontSize: '0.85rem'
+                      }}>
+                        <AlertCircle size={16} /> LICENCIA VENCIDA
+                      </span>
+                    )}
+                  </div>
+
+                  <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                    <div><strong>Club Registrado:</strong> {licenseData?.businessName || 'Billar Demo'}</div>
+                    <div style={{ marginTop: '0.2rem' }}><strong>NIT / ID:</strong> {licenseData?.nit || 'Sin registrar'}</div>
+                  </div>
+                </div>
+
+                {/* Card 2: Mesas Autorizadas */}
+                <div style={{
+                  background: 'var(--bg-surface)',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '1.25rem'
+                }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
+                    Capacidad de Mesas
+                  </div>
+
+                  <div style={{ fontSize: '1.45rem', fontWeight: 900, color: '#fff', marginBottom: '0.5rem' }}>
+                    {licenseData?.tablesInUse || 0} <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', fontWeight: 600 }}>de {licenseData?.maxTables || 0} mesas en uso</span>
+                  </div>
+
+                  {/* Progress Bar */}
+                  <div style={{
+                    width: '100%',
+                    height: '8px',
+                    background: 'rgba(255, 255, 255, 0.08)',
+                    borderRadius: '4px',
+                    overflow: 'hidden',
+                    marginBottom: '0.6rem'
+                  }}>
+                    <div style={{
+                      width: `${Math.min(100, Math.round(((licenseData?.tablesInUse || 0) / Math.max(1, (licenseData?.maxTables || 1))) * 100))}%`,
+                      height: '100%',
+                      background: (licenseData?.tablesInUse || 0) >= (licenseData?.maxTables || 1) ? '#ef4444' : 'var(--color-brand)',
+                      transition: 'width 0.3s'
+                    }} />
+                  </div>
+
+                  <div style={{ fontSize: '0.8rem', color: (licenseData?.tablesRemaining || 0) <= 0 ? '#f87171' : 'var(--text-secondary)', fontWeight: 600 }}>
+                    {(licenseData?.tablesRemaining || 0) <= 0 
+                      ? 'Límite de mesas alcanzado para este plan.' 
+                      : `${licenseData?.tablesRemaining} mesas disponibles para agregar.`}
+                  </div>
+                </div>
+
+                {/* Card 3: Vigencia / Caducidad */}
+                <div style={{
+                  background: 'var(--bg-surface)',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '1.25rem'
+                }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
+                    Vigencia del Plan
+                  </div>
+
+                  <div style={{ fontSize: '1.35rem', fontWeight: 900, color: '#fff', marginBottom: '0.35rem' }}>
+                    {licenseData?.isPerpetual 
+                      ? 'Vitalicia / Permanente' 
+                      : (licenseData?.expiryDate || 'N/A')}
+                  </div>
+
+                  <div style={{ fontSize: '0.82rem', color: 'var(--color-brand)', fontWeight: 700 }}>
+                    {licenseData?.isPerpetual 
+                      ? '🎉 Sin fecha de caducidad' 
+                      : (licenseData?.daysRemaining != null ? `⏳ ${licenseData.daysRemaining} días de servicio restantes` : '')}
+                  </div>
+                </div>
+              </div>
+
+              {/* License Key Activation Form */}
+              <div style={{
+                background: 'var(--bg-surface)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: 'var(--radius-md)',
+                padding: '1.5rem'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.5rem' }}>
+                  <Key size={20} color="var(--color-brand)" />
+                  <h4 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#fff', margin: 0 }}>
+                    Activar o Renovar Licencia Comercial
+                  </h4>
+                </div>
+                <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: '0 0 1.25rem 0' }}>
+                  Pega aquí la clave de activación provista por el administrador del sistema (ej: <code>BPL-eyJuIjoi...</code>) para desbloquear mesas adicionales o extender tu periodo de servicio.
+                </p>
+
+                <form onSubmit={handleActivateLicense} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                      CLAVE DE LICENCIA (LICENSE KEY)
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={licenseInput}
+                      onChange={(e) => setLicenseInput(e.target.value)}
+                      placeholder="BPL-eyJuIjoiQ2x1Yi... (Pega tu clave completa aquí)"
+                      style={{
+                        width: '100%',
+                        padding: '0.75rem 1rem',
+                        background: 'rgba(0, 0, 0, 0.5)',
+                        border: '1px solid var(--border-subtle)',
+                        borderRadius: 'var(--radius-sm)',
+                        color: '#fff',
+                        fontSize: '0.9rem',
+                        fontFamily: 'monospace'
+                      }}
+                    />
+                  </div>
+
+                  {licenseMsg && (
+                    <div style={{
+                      padding: '0.75rem 1rem',
+                      borderRadius: 'var(--radius-sm)',
+                      background: licenseMsg.type === 'success' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                      border: `1px solid ${licenseMsg.type === 'success' ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)'}`,
+                      color: licenseMsg.type === 'success' ? 'var(--color-brand)' : '#f87171',
+                      fontSize: '0.85rem',
+                      fontWeight: 700,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem'
+                    }}>
+                      {licenseMsg.type === 'success' ? <Check size={18} /> : <AlertCircle size={18} />}
+                      {licenseMsg.text}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                    <button
+                      type="submit"
+                      disabled={activatingLicense || !licenseInput.trim()}
+                      style={{
+                        padding: '0.8rem 2rem',
+                        background: 'var(--color-brand)',
+                        color: '#090d16',
+                        borderRadius: 'var(--radius-md)',
+                        fontWeight: 800,
+                        fontSize: '0.9rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.5rem',
+                        cursor: activatingLicense || !licenseInput.trim() ? 'not-allowed' : 'pointer',
+                        opacity: activatingLicense || !licenseInput.trim() ? 0.6 : 1,
+                        boxShadow: 'var(--shadow-neon-green)'
+                      }}
+                    >
+                      <Key size={18} />
+                      {activatingLicense ? 'Validando Clave...' : 'Validar & Activar Licencia'}
+                    </button>
+                  </div>
+                </form>
               </div>
             </div>
           )}

@@ -7,12 +7,18 @@ if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
 
-const dbPath = path.join(dataDir, 'billarpulse.db');
-const db = new Database(dbPath);
+const { getTenantDb } = require('./tenants');
 
-// Enable WAL mode for high concurrency
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+const dbPath = path.join(dataDir, 'billarpulse.db');
+
+// Multi-tenant Dynamic DB Proxy: automatically routes queries to active club database
+const db = new Proxy({}, {
+  get(target, prop) {
+    const activeDb = getTenantDb();
+    const val = activeDb[prop];
+    return typeof val === 'function' ? val.bind(activeDb) : val;
+  }
+});
 
 function initSchema() {
   db.exec(`
@@ -140,6 +146,8 @@ function initSchema() {
   try { db.exec("ALTER TABLE products ADD COLUMN min_stock INTEGER DEFAULT 10;"); } catch(e) {}
   try { db.exec("ALTER TABLE orders ADD COLUMN waiter_name TEXT DEFAULT 'Caja';"); } catch(e) {}
   try { db.exec("ALTER TABLE orders ADD COLUMN waiter_id INTEGER;"); } catch(e) {}
+  try { db.exec("ALTER TABLE tables ADD COLUMN location TEXT DEFAULT '';"); } catch(e) {}
+  try { db.exec("ALTER TABLE tables ADD COLUMN customer_name TEXT DEFAULT '';"); } catch(e) {}
 
   // Seed default staff if empty
   const staffCount = db.prepare('SELECT COUNT(*) as count FROM staff').get().count;
@@ -178,6 +186,33 @@ function initSchema() {
   `).run();
   db.prepare(`
     INSERT OR IGNORE INTO settings (key, value) VALUES ('ticket_footer', '¡GRACIAS POR SU VISITA! VUELVA PRONTO.')
+  `).run();
+  db.prepare(`
+    INSERT OR IGNORE INTO settings (key, value) VALUES ('currency_symbol', '$')
+  `).run();
+  db.prepare(`
+    INSERT OR IGNORE INTO settings (key, value) VALUES ('currency_code', 'COP')
+  `).run();
+  db.prepare(`
+    INSERT OR IGNORE INTO settings (key, value) VALUES ('currency_locale', 'es-CO')
+  `).run();
+  db.prepare(`
+    INSERT OR IGNORE INTO settings (key, value) VALUES ('currency_decimals', '0')
+  `).run();
+  db.prepare(`
+    INSERT OR IGNORE INTO settings (key, value) VALUES ('license_key', '')
+  `).run();
+  db.prepare(`
+    INSERT OR IGNORE INTO settings (key, value) VALUES ('owner_whatsapp', '')
+  `).run();
+  db.prepare(`
+    INSERT OR IGNORE INTO settings (key, value) VALUES ('notify_whatsapp_on_close', '1')
+  `).run();
+  db.prepare(`
+    INSERT OR IGNORE INTO settings (key, value) VALUES ('app_theme', 'dark')
+  `).run();
+  db.prepare(`
+    INSERT OR IGNORE INTO settings (key, value) VALUES ('webhook_url', '')
   `).run();
 
   // Seed default tables if empty
@@ -765,28 +800,44 @@ const dbOperations = {
     return { success: true, id };
   },
 
-  updateTable(id, { name, hourly_rate, type }) {
+  updateTable(id, { name, hourly_rate, type, status }) {
     db.prepare(`
       UPDATE tables SET
         name = COALESCE(?, name),
         hourly_rate = COALESCE(?, hourly_rate),
-        type = COALESCE(?, type)
+        type = COALESCE(?, type),
+        status = COALESCE(?, status)
       WHERE id = ?
     `).run(
-      name, 
+      name !== undefined ? name : null, 
       hourly_rate != null ? Number(hourly_rate) : null, 
-      type, 
+      type !== undefined ? type : null, 
+      status !== undefined ? status : null,
       id
     );
     return db.prepare('SELECT * FROM tables WHERE id = ?').get(id);
   },
 
-  createTable({ table_number, name, type = 'pool', hourly_rate = 8000 }) {
+  deleteTable(id) {
+    const table = db.prepare('SELECT * FROM tables WHERE id = ?').get(id);
+    if (!table) throw new Error('Mesa no encontrada');
+    const activeSession = db.prepare("SELECT id FROM sessions WHERE table_id = ? AND status = 'active'").get(id);
+    if (activeSession) throw new Error('No se puede eliminar una mesa con partida en curso. Finaliza la partida primero.');
+    db.prepare("UPDATE tables SET status = 'closed' WHERE id = ?").run(id);
+    return { success: true, id };
+  },
+
+  getAllTables() {
+    return db.prepare("SELECT * FROM tables WHERE status != 'closed' ORDER BY id ASC").all();
+  },
+
+  createTable({ table_number, name, type = 'pool', hourly_rate = 8000, status = 'available' }) {
+    const initialStatus = status === 'maintenance' ? 'maintenance' : 'available';
     const insert = db.prepare(`
       INSERT INTO tables (table_number, name, type, hourly_rate, status)
-      VALUES (?, ?, ?, ?, 'available')
+      VALUES (?, ?, ?, ?, ?)
     `);
-    const res = insert.run(table_number, name, type, Number(hourly_rate));
+    const res = insert.run(table_number, name, type, Number(hourly_rate), initialStatus);
     const now = new Date().toISOString();
     db.prepare(`
       INSERT INTO scores (table_id, player1_name, player2_name, score1, score2, sets1, sets2, updated_at)
@@ -795,16 +846,56 @@ const dbOperations = {
     return db.prepare('SELECT * FROM tables WHERE id = ?').get(res.lastInsertRowid);
   },
 
-  createBarTab(name) {
-    const safeName = name && name.trim() ? name.trim() : 'Cuenta Barra';
+  createBarTab(nameOrObj, maybeCustomerName = '', maybeLocation = '') {
+    let location = '';
+    let customerName = '';
+    let name = '';
+
+    if (typeof nameOrObj === 'object' && nameOrObj !== null) {
+      location = (nameOrObj.location || '').trim();
+      customerName = (nameOrObj.customerName || nameOrObj.customer_name || '').trim();
+      name = (nameOrObj.name || '').trim();
+    } else {
+      name = (nameOrObj || '').trim();
+      customerName = (maybeCustomerName || '').trim();
+      location = (maybeLocation || '').trim();
+    }
+
+    if (!location && !customerName) {
+      if (name) {
+        if (name.includes(' • ')) {
+          const parts = name.split(' • ');
+          location = parts[0].trim();
+          customerName = parts.slice(1).join(' • ').trim();
+        } else if (name.includes(' - ')) {
+          const parts = name.split(' - ');
+          location = parts[0].trim();
+          customerName = parts.slice(1).join(' - ').trim();
+        } else {
+          location = name;
+        }
+      } else {
+        location = 'Barra 01';
+      }
+    }
+
+    let safeName = name;
+    if (!safeName) {
+      if (location && customerName) {
+        safeName = `${location} • ${customerName}`;
+      } else {
+        safeName = location || customerName || 'Cuenta Personal';
+      }
+    }
+
     const countRow = db.prepare("SELECT COUNT(*) as count FROM tables WHERE type = 'barra'").get();
     const tabNum = `B-${String((countRow ? countRow.count : 0) + 1).padStart(2, '0')}`;
 
     const insert = db.prepare(`
-      INSERT INTO tables (table_number, name, type, hourly_rate, status)
-      VALUES (?, ?, 'barra', 0.0, 'occupied')
+      INSERT INTO tables (table_number, name, type, hourly_rate, status, location, customer_name)
+      VALUES (?, ?, 'barra', 0.0, 'occupied', ?, ?)
     `);
-    const res = insert.run(tabNum, safeName);
+    const res = insert.run(tabNum, safeName, location, customerName);
     const tableId = res.lastInsertRowid;
 
     const startTime = new Date().toISOString();
@@ -818,7 +909,94 @@ const dbOperations = {
       tableId,
       sessionId: sessionRes.lastInsertRowid,
       name: safeName,
+      location,
+      customer_name: customerName,
       table_number: tabNum
+    };
+  },
+
+  updateBarTab(tableId, data) {
+    const table = db.prepare("SELECT * FROM tables WHERE id = ? AND type = 'barra'").get(tableId);
+    if (!table) throw new Error('Cuenta de barra no encontrada');
+
+    const location = data.location !== undefined ? (data.location || '').trim() : (table.location || '');
+    const customerName = data.customerName !== undefined 
+      ? (data.customerName || '').trim() 
+      : (data.customer_name !== undefined ? (data.customer_name || '').trim() : (table.customer_name || ''));
+
+    let safeName = data.name ? data.name.trim() : '';
+    if (!safeName) {
+      if (location && customerName) {
+        safeName = `${location} • ${customerName}`;
+      } else {
+        safeName = location || customerName || 'Cuenta Personal';
+      }
+    }
+
+    db.prepare(`
+      UPDATE tables 
+      SET name = ?, location = ?, customer_name = ?
+      WHERE id = ?
+    `).run(safeName, location, customerName, tableId);
+
+    return db.prepare("SELECT * FROM tables WHERE id = ?").get(tableId);
+  },
+
+  separateOrderItem(itemId, { location = '', customerName = '', targetTableId = null }) {
+    const item = db.prepare(`
+      SELECT oi.*, o.session_id, o.id as order_id, s.table_id
+      FROM order_items oi
+      JOIN orders o ON o.id = oi.order_id
+      JOIN sessions s ON s.id = o.session_id
+      WHERE oi.id = ?
+    `).get(itemId);
+
+    if (!item) throw new Error('Consumo no encontrado');
+
+    const sourceTable = db.prepare("SELECT * FROM tables WHERE id = ?").get(item.table_id);
+
+    let destTableId = targetTableId;
+    let destSessionId = null;
+
+    if (destTableId) {
+      const activeSession = db.prepare("SELECT id FROM sessions WHERE table_id = ? AND status = 'active'").get(destTableId);
+      if (!activeSession) throw new Error('La cuenta de destino no está activa');
+      destSessionId = activeSession.id;
+    } else {
+      const loc = location || (sourceTable ? `Mesa ${sourceTable.table_number}` : 'Mesa');
+      const cust = customerName || 'Cliente Personal';
+      const newTab = this.createBarTab({ location: loc, customerName: cust });
+      destTableId = newTab.tableId;
+      destSessionId = newTab.sessionId;
+    }
+
+    const now = new Date().toISOString();
+    const newOrder = db.prepare(`
+      INSERT INTO orders (session_id, created_at, total, waiter_name)
+      VALUES (?, ?, ?, 'Separado')
+    `).run(destSessionId, now, item.subtotal);
+
+    db.prepare(`
+      INSERT INTO order_items (order_id, product_id, quantity, unit_price, subtotal, assigned_to)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(newOrder.lastInsertRowid, item.product_id, item.quantity, item.unit_price, item.subtotal, customerName || item.assigned_to || 'Personal');
+
+    // Remove item from old order
+    db.prepare("DELETE FROM order_items WHERE id = ?").run(itemId);
+
+    // Recalculate old order total
+    const remaining = db.prepare("SELECT SUM(subtotal) as total, COUNT(*) as count FROM order_items WHERE order_id = ?").get(item.order_id);
+    if (!remaining || remaining.count === 0) {
+      db.prepare("DELETE FROM orders WHERE id = ?").run(item.order_id);
+    } else {
+      db.prepare("UPDATE orders SET total = ? WHERE id = ?").run(remaining.total || 0, item.order_id);
+    }
+
+    return {
+      success: true,
+      sourceTableId: item.table_id,
+      targetTableId: destTableId,
+      subtotal: item.subtotal
     };
   },
 

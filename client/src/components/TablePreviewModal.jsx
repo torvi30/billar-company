@@ -21,10 +21,16 @@ export default function TablePreviewModal({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
+  const [activeTableId, setActiveTableId] = React.useState(tableId);
+
+  useEffect(() => {
+    setActiveTableId(tableId);
+  }, [tableId]);
+
   if (!isOpen || !tableId) return null;
 
-  const currentTable = tablesOverview.find(t => t.id === tableId);
-  const tableName = currentTable ? `Mesa ${currentTable.table_number} - ${currentTable.name}` : `Mesa ${tableId}`;
+  const currentTable = tablesOverview.find(t => t.id === activeTableId) || tablesOverview.find(t => t.id === tableId);
+  const tableName = currentTable ? `Mesa ${currentTable.table_number} - ${currentTable.name}` : `Mesa ${activeTableId}`;
 
   return (
     <div 
@@ -139,9 +145,10 @@ export default function TablePreviewModal({
         {/* Live Kiosk Screen Inside Preview */}
         <div style={{ flex: 1, overflowY: 'auto', background: '#090d16' }}>
           <TableKiosk 
-            tableId={tableId}
+            tableId={activeTableId}
             tablesOverview={tablesOverview}
             onStateChange={onStateChange}
+            onSelectTable={setActiveTableId}
           />
         </div>
       </div>

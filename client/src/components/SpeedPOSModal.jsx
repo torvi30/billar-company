@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Plus, Minus, ShoppingCart, Check, User, Users, CircleDot, Tag, PlusCircle } from 'lucide-react';
+import { X, Plus, Minus, ShoppingCart, Check, User, Users, CircleDot, Tag, PlusCircle, MapPin } from 'lucide-react';
 import { formatCurrency } from '../utils/formatters';
 import { sounds } from '../utils/audio';
 import { api } from '../services/api';
@@ -9,9 +9,16 @@ export default function SpeedPOSModal({ table, isOpen, onClose, onSuccess, curre
   const [selectedCategory, setSelectedCategory] = useState('Todas');
   const [activeTarget, setActiveTarget] = useState('Mesa');
   const [customTargetName, setCustomTargetName] = useState('');
+  const [customTargets, setCustomTargets] = useState([]);
   const [showCustomInput, setShowCustomInput] = useState(false);
   const [cart, setCart] = useState({}); // key: `${productId}_${target}` -> { productId, target, quantity }
   const [loading, setLoading] = useState(false);
+
+  // Estados para cuentas personales separadas
+  const [chargeDestination, setChargeDestination] = useState('table'); // 'table' | 'personal'
+  const [personalLocation, setPersonalLocation] = useState('');
+  const [personalCustomer, setPersonalCustomer] = useState('');
+  const [activeBarTabs, setActiveBarTabs] = useState([]);
 
   const p1Name = (table && table.score && table.score.player1_name) || 'Jugador 1';
   const p2Name = (table && table.score && table.score.player2_name) || 'Jugador 2';
@@ -20,13 +27,24 @@ export default function SpeedPOSModal({ table, isOpen, onClose, onSuccess, curre
     if (isOpen) {
       setCart({});
       setActiveTarget('Mesa');
+      setCustomTargets([]);
       setShowCustomInput(false);
       setCustomTargetName('');
+      setChargeDestination('table');
+      setPersonalCustomer('');
+      setPersonalLocation(table && table.type !== 'barra' ? `Mesa ${table.table_number}` : 'Barra 01');
+
       api.getProducts().then(res => {
         if (res.success) setProducts(res.data);
       });
+
+      api.getTables().then(res => {
+        if (res.success && res.data) {
+          setActiveBarTabs(res.data.filter(t => t.type === 'barra'));
+        }
+      });
     }
-  }, [isOpen]);
+  }, [isOpen, table]);
 
   if (!isOpen || !table) return null;
 
@@ -35,7 +53,7 @@ export default function SpeedPOSModal({ table, isOpen, onClose, onSuccess, curre
     ? products 
     : products.filter(p => p.category === selectedCategory);
 
-  const targetsList = table.type === 'barra'
+  const baseTargets = table.type === 'barra'
     ? [
         { id: 'Mesa', label: '🍺 Cuenta General', color: 'var(--color-brand)' }
       ]
@@ -45,11 +63,55 @@ export default function SpeedPOSModal({ table, isOpen, onClose, onSuccess, curre
         { id: p2Name, label: `👤 ${p2Name}`, color: 'var(--color-gold)' }
       ];
 
+  const customTargetList = customTargets.map(name => ({
+    id: name,
+    label: `👤 ${name}`,
+    color: '#a855f7',
+    isCustom: true
+  }));
+
+  const targetsList = [...baseTargets, ...customTargetList];
+
+  const handleAddCustomTarget = () => {
+    const trimmed = customTargetName.trim();
+    if (!trimmed) {
+      setShowCustomInput(false);
+      return;
+    }
+    if (!customTargets.includes(trimmed) && trimmed !== 'Mesa' && trimmed !== p1Name && trimmed !== p2Name) {
+      setCustomTargets(prev => [...prev, trimmed]);
+    }
+    setActiveTarget(trimmed);
+    setCustomTargetName('');
+    setShowCustomInput(false);
+    sounds.playScoreBeep(true);
+  };
+
+  const handleRemoveCustomTarget = (nameToRemove, e) => {
+    if (e) e.stopPropagation();
+    setCustomTargets(prev => prev.filter(n => n !== nameToRemove));
+    if (activeTarget === nameToRemove) {
+      setActiveTarget('Mesa');
+    }
+    sounds.playScoreBeep(false);
+  };
+
   const currentEffectiveTarget = showCustomInput && customTargetName.trim() 
     ? customTargetName.trim() 
     : activeTarget;
 
   const updateQuantity = (productId, target, delta) => {
+    let resolvedTarget = target;
+    if (showCustomInput && customTargetName.trim()) {
+      resolvedTarget = customTargetName.trim();
+      if (!customTargets.includes(resolvedTarget) && resolvedTarget !== 'Mesa' && resolvedTarget !== p1Name && resolvedTarget !== p2Name) {
+        setCustomTargets(prev => [...prev, resolvedTarget]);
+      }
+      setActiveTarget(resolvedTarget);
+      setShowCustomInput(false);
+      setCustomTargetName('');
+    }
+
     const prod = products.find(p => p.id === productId);
     if (delta > 0 && prod) {
       const currentInCart = Object.values(cart)
@@ -64,7 +126,7 @@ export default function SpeedPOSModal({ table, isOpen, onClose, onSuccess, curre
     }
 
     sounds.playScoreBeep(delta > 0);
-    const key = `${productId}_${target}`;
+    const key = `${productId}_${resolvedTarget}`;
     setCart(prev => {
       const existing = prev[key];
       const currentQty = existing ? existing.quantity : 0;
@@ -75,7 +137,7 @@ export default function SpeedPOSModal({ table, isOpen, onClose, onSuccess, curre
       } else {
         copy[key] = {
           productId,
-          target,
+          target: resolvedTarget,
           quantity: nextQty
         };
       }
@@ -125,16 +187,51 @@ export default function SpeedPOSModal({ table, isOpen, onClose, onSuccess, curre
         } catch (e) {}
       }
 
-      await api.addOrder(
-        table.current_session.id, 
-        payload, 
-        activeTarget, 
-        activeWaiterName || 'Caja', 
-        activeWaiterId || null
-      );
+      if (table.type !== 'barra' && chargeDestination === 'personal') {
+        const cust = personalCustomer.trim() || 'Cliente Personal';
+        const loc = personalLocation.trim() || `Mesa ${table.table_number}`;
+
+        // Check if an existing active bar tab matches this person
+        let targetSessionId = null;
+        const matchingTab = activeBarTabs.find(t => 
+          t.current_session && (
+            (t.customer_name && t.customer_name.toLowerCase() === cust.toLowerCase()) ||
+            (t.name && t.name.toLowerCase() === `${loc} • ${cust}`.toLowerCase())
+          )
+        );
+
+        if (matchingTab && matchingTab.current_session) {
+          targetSessionId = matchingTab.current_session.id;
+        } else {
+          const createRes = await api.createBarTab({
+            location: loc,
+            customerName: cust
+          });
+          if (!createRes.success) throw new Error(createRes.error || 'Error al crear cuenta personal');
+          targetSessionId = createRes.data.sessionId;
+        }
+
+        await api.addOrder(
+          targetSessionId,
+          payload,
+          cust,
+          activeWaiterName || 'Caja',
+          activeWaiterId || null
+        );
+      } else {
+        await api.addOrder(
+          table.current_session.id, 
+          payload, 
+          activeTarget, 
+          activeWaiterName || 'Caja', 
+          activeWaiterId || null
+        );
+      }
+
       onSuccess();
       onClose();
     } catch (e) {
+      sounds.playError();
       alert(e.message || 'Error al agregar productos');
     } finally {
       setLoading(false);
@@ -143,7 +240,9 @@ export default function SpeedPOSModal({ table, isOpen, onClose, onSuccess, curre
 
   // Switch an item's target in the cart
   const cycleTargetForItem = (entry) => {
-    const available = ['Mesa', p1Name, p2Name];
+    const available = table.type === 'barra'
+      ? ['Mesa', ...customTargets]
+      : ['Mesa', p1Name, p2Name, ...customTargets];
     const currentIndex = available.indexOf(entry.target);
     const nextTarget = currentIndex >= 0 && currentIndex < available.length - 1 
       ? available[currentIndex + 1] 
@@ -243,107 +342,328 @@ export default function SpeedPOSModal({ table, isOpen, onClose, onSuccess, curre
           </button>
         </div>
 
-        {/* Target Assignee Selector Bar */}
-        <div style={{
-          padding: '0.75rem 1.75rem',
-          background: 'rgba(0, 0, 0, 0.35)',
-          borderBottom: '1px solid var(--border-subtle)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.75rem',
-          flexWrap: 'wrap'
-        }}>
-          <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-            Cargar consumo a:
-          </span>
-          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-            {targetsList.map(t => {
-              const isSelected = !showCustomInput && activeTarget === t.id;
-              return (
-                <button
-                  key={t.id}
-                  onClick={() => {
-                    setShowCustomInput(false);
-                    setActiveTarget(t.id);
-                  }}
-                  style={{
-                    padding: '0.45rem 0.9rem',
-                    borderRadius: 'var(--radius-sm)',
-                    fontSize: '0.8rem',
-                    fontWeight: 800,
-                    background: isSelected ? t.color : 'rgba(255, 255, 255, 0.05)',
-                    color: isSelected ? '#090d16' : '#fff',
-                    border: `1px solid ${isSelected ? t.color : 'var(--border-subtle)'}`,
-                    boxShadow: isSelected ? `0 0 12px ${t.color}40` : 'none',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.4rem',
-                    cursor: 'pointer'
-                  }}
-                >
-                  {t.label}
-                </button>
-              );
-            })}
-
-            {/* Custom target toggle */}
-            {!showCustomInput ? (
+        {/* Destino de la Cuenta: Mesa vs Cuenta Personal Separada */}
+        {table.type !== 'barra' && (
+          <div style={{
+            padding: '0.75rem 1.75rem',
+            background: 'rgba(0, 0, 0, 0.45)',
+            borderBottom: '1px solid var(--border-subtle)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '1rem',
+            flexWrap: 'wrap'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                Destino del Cobro:
+              </span>
               <button
-                onClick={() => setShowCustomInput(true)}
+                type="button"
+                onClick={() => setChargeDestination('table')}
                 style={{
-                  padding: '0.45rem 0.75rem',
+                  padding: '0.4rem 0.85rem',
                   borderRadius: 'var(--radius-sm)',
-                  fontSize: '0.75rem',
-                  fontWeight: 700,
-                  background: 'rgba(255, 255, 255, 0.04)',
-                  color: 'var(--text-secondary)',
-                  border: '1px dashed var(--border-subtle)',
-                  cursor: 'pointer'
+                  fontSize: '0.8rem',
+                  fontWeight: 800,
+                  background: chargeDestination === 'table' ? 'var(--color-brand)' : 'rgba(255, 255, 255, 0.05)',
+                  color: chargeDestination === 'table' ? '#090d16' : '#fff',
+                  border: `1px solid ${chargeDestination === 'table' ? 'var(--color-brand)' : 'var(--border-subtle)'}`,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.35rem'
                 }}
               >
-                + Otro Jugador/Nombre
+                🎱 Mesa {table.table_number} (Cuenta General)
               </button>
-            ) : (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+
+              <button
+                type="button"
+                onClick={() => setChargeDestination('personal')}
+                style={{
+                  padding: '0.4rem 0.85rem',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: '0.8rem',
+                  fontWeight: 800,
+                  background: chargeDestination === 'personal' ? 'var(--color-gold)' : 'rgba(255, 255, 255, 0.05)',
+                  color: chargeDestination === 'personal' ? '#090d16' : 'var(--text-secondary)',
+                  border: `1px solid ${chargeDestination === 'personal' ? 'var(--color-gold)' : 'var(--border-subtle)'}`,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  boxShadow: chargeDestination === 'personal' ? '0 0 10px rgba(251, 191, 36, 0.3)' : 'none'
+                }}
+              >
+                <User size={14} />
+                👤 Cuenta Personal Separada (No sumar a la mesa)
+              </button>
+            </div>
+
+            <div style={{ fontSize: '0.75rem', color: chargeDestination === 'personal' ? 'var(--color-gold)' : 'var(--color-brand)', fontWeight: 700 }}>
+              {chargeDestination === 'personal' ? '⚡ Cobro por aparte al cliente' : '🎱 Se suma al ticket de la mesa'}
+            </div>
+          </div>
+        )}
+
+        {/* Target Assignee Selector Bar */}
+        {chargeDestination === 'personal' && table.type !== 'barra' ? (
+          <div style={{
+            padding: '0.75rem 1.75rem',
+            background: 'rgba(251, 191, 36, 0.08)',
+            borderBottom: '1px solid rgba(251, 191, 36, 0.25)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.5rem'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                <MapPin size={15} color="var(--color-gold)" />
+                <span style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--color-gold)' }}>Ubicación:</span>
                 <input
                   type="text"
-                  placeholder="Nombre de la persona..."
-                  value={customTargetName}
-                  onChange={(e) => setCustomTargetName(e.target.value)}
-                  autoFocus
+                  value={personalLocation}
+                  onChange={(e) => setPersonalLocation(e.target.value)}
+                  placeholder={`Mesa ${table.table_number}`}
                   style={{
-                    padding: '0.4rem 0.75rem',
+                    padding: '0.35rem 0.65rem',
                     borderRadius: 'var(--radius-sm)',
-                    background: '#090d16',
-                    border: '1px solid var(--color-purple)',
+                    background: 'var(--bg-surface)',
+                    border: '1px solid var(--border-subtle)',
                     color: '#fff',
                     fontSize: '0.8rem',
-                    width: '160px'
+                    fontWeight: 700,
+                    width: '110px'
                   }}
                 />
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                <User size={15} color="var(--color-brand)" />
+                <span style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--color-brand)' }}>Nombre Cliente:</span>
+                <input
+                  type="text"
+                  autoFocus
+                  value={personalCustomer}
+                  onChange={(e) => setPersonalCustomer(e.target.value)}
+                  placeholder="Ej: Don Pedro, Carlos..."
+                  style={{
+                    padding: '0.35rem 0.65rem',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'var(--bg-surface)',
+                    border: '1px solid var(--border-subtle)',
+                    color: '#fff',
+                    fontSize: '0.8rem',
+                    fontWeight: 700,
+                    width: '180px'
+                  }}
+                />
+              </div>
+
+              {/* Sugerencias de cuentas de barra existentes */}
+              {activeBarTabs.length > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Cuentas abiertas:</span>
+                  {activeBarTabs.map(bt => (
+                    <button
+                      type="button"
+                      key={bt.id}
+                      onClick={() => {
+                        setPersonalCustomer(bt.customer_name || bt.name);
+                        if (bt.location) setPersonalLocation(bt.location);
+                      }}
+                      style={{
+                        padding: '0.25rem 0.5rem',
+                        borderRadius: 'var(--radius-sm)',
+                        background: 'rgba(255, 255, 255, 0.06)',
+                        border: '1px solid var(--border-subtle)',
+                        color: 'var(--color-gold)',
+                        fontSize: '0.7rem',
+                        fontWeight: 700,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {bt.customer_name ? `${bt.customer_name} (${bt.location || 'Barra'})` : bt.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+              💡 Este pedido se cargará a la cuenta de <strong>{personalCustomer.trim() || 'esta persona'}</strong> en <strong>{personalLocation || `Mesa ${table.table_number}`}</strong>. <u>No se sumará a la cuenta de la Mesa {table.table_number}</u>.
+            </div>
+          </div>
+        ) : (
+          <div style={{
+            padding: '0.75rem 1.75rem',
+            background: 'rgba(0, 0, 0, 0.35)',
+            borderBottom: '1px solid var(--border-subtle)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.75rem',
+            flexWrap: 'wrap'
+          }}>
+            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+              Cargar consumo a:
+            </span>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+              {targetsList.map(t => {
+                const isSelected = !showCustomInput && activeTarget === t.id;
+                return (
+                  <div key={t.id} style={{ display: 'inline-flex', alignItems: 'center' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowCustomInput(false);
+                        setActiveTarget(t.id);
+                        sounds.playScoreBeep(true);
+                      }}
+                      style={{
+                        padding: t.isCustom ? '0.45rem 0.6rem 0.45rem 0.85rem' : '0.45rem 0.9rem',
+                        borderRadius: 'var(--radius-sm)',
+                        fontSize: '0.8rem',
+                        fontWeight: 800,
+                        background: isSelected ? t.color : 'rgba(255, 255, 255, 0.05)',
+                        color: isSelected ? '#090d16' : '#fff',
+                        border: `1px solid ${isSelected ? t.color : 'var(--border-subtle)'}`,
+                        boxShadow: isSelected ? `0 0 12px ${t.color}40` : 'none',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.4rem',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <span>{t.label}</span>
+                      {t.isCustom && (
+                        <span
+                          onClick={(e) => handleRemoveCustomTarget(t.id, e)}
+                          title="Quitar este jugador"
+                          style={{
+                            marginLeft: '4px',
+                            padding: '1px 5px',
+                            borderRadius: '50%',
+                            background: isSelected ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.15)',
+                            color: isSelected ? '#000' : '#fff',
+                            fontSize: '0.72rem',
+                            fontWeight: 900,
+                            lineHeight: 1,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          ✕
+                        </span>
+                      )}
+                    </button>
+                  </div>
+                );
+              })}
+
+              {/* Custom target toggle / Form */}
+              {!showCustomInput ? (
                 <button
+                  type="button"
                   onClick={() => {
-                    if (!customTargetName.trim()) setShowCustomInput(false);
+                    setShowCustomInput(true);
+                    setCustomTargetName('');
                   }}
                   style={{
-                    padding: '0.4rem 0.6rem',
-                    background: 'var(--color-purple)',
-                    color: '#fff',
+                    padding: '0.45rem 0.75rem',
                     borderRadius: 'var(--radius-sm)',
                     fontSize: '0.75rem',
-                    fontWeight: 700
+                    fontWeight: 700,
+                    background: 'rgba(255, 255, 255, 0.04)',
+                    color: 'var(--text-secondary)',
+                    border: '1px dashed var(--border-subtle)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.35rem'
                   }}
                 >
-                  OK
+                  <PlusCircle size={14} color="#a855f7" />
+                  + Otro Jugador/Nombre
                 </button>
-              </div>
-            )}
-          </div>
+              ) : (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleAddCustomTarget();
+                  }}
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                >
+                  <input
+                    type="text"
+                    placeholder="Nombre del jugador o cliente..."
+                    value={customTargetName}
+                    onChange={(e) => setCustomTargetName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') {
+                        setShowCustomInput(false);
+                      }
+                    }}
+                    autoFocus
+                    style={{
+                      padding: '0.4rem 0.75rem',
+                      borderRadius: 'var(--radius-sm)',
+                      background: '#090d16',
+                      border: '1.5px solid #a855f7',
+                      color: '#fff',
+                      fontSize: '0.82rem',
+                      fontWeight: 700,
+                      width: '180px',
+                      outline: 'none',
+                      boxShadow: '0 0 10px rgba(168, 85, 247, 0.35)'
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    title="Confirmar jugador"
+                    style={{
+                      padding: '0.42rem 0.75rem',
+                      background: '#a855f7',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: 'var(--radius-sm)',
+                      fontSize: '0.75rem',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.25rem'
+                    }}
+                  >
+                    <Check size={14} /> OK
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowCustomInput(false);
+                      setCustomTargetName('');
+                    }}
+                    title="Cancelar"
+                    style={{
+                      padding: '0.42rem 0.5rem',
+                      background: 'rgba(255, 255, 255, 0.08)',
+                      color: 'var(--text-secondary)',
+                      border: '1px solid var(--border-subtle)',
+                      borderRadius: 'var(--radius-sm)',
+                      fontSize: '0.75rem',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    ✕
+                  </button>
+                </form>
+              )}
+            </div>
 
-          <div style={{ marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-            Destino activo: <strong style={{ color: '#fff' }}>{currentEffectiveTarget}</strong>
+            <div style={{ marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+              Destino activo: <strong style={{ color: activeTarget !== 'Mesa' ? '#a855f7' : '#fff' }}>{currentEffectiveTarget}</strong>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Modal Body: Products on Left, Cart on Right */}
         <div style={{
@@ -537,9 +857,10 @@ export default function SpeedPOSModal({ table, isOpen, onClose, onSuccess, curre
                   {cartEntries.map((entry, idx) => {
                     const isMesa = entry.target === 'Mesa';
                     const isP1 = entry.target === p1Name;
+                    const isP2 = entry.target === p2Name;
                     const badgeColor = isMesa 
                       ? 'var(--color-brand)' 
-                      : isP1 ? 'var(--color-blue)' : 'var(--color-gold)';
+                      : isP1 ? 'var(--color-blue)' : isP2 ? 'var(--color-gold)' : '#a855f7';
 
                     return (
                       <div
@@ -672,17 +993,27 @@ export default function SpeedPOSModal({ table, isOpen, onClose, onSuccess, curre
                   width: '100%',
                   padding: '0.9rem',
                   borderRadius: 'var(--radius-md)',
-                  background: cartEntries.length > 0 ? 'var(--color-brand)' : 'var(--border-subtle)',
+                  background: cartEntries.length > 0 
+                    ? (table.type !== 'barra' && chargeDestination === 'personal' ? 'linear-gradient(135deg, #fbbf24, #d97706)' : 'var(--color-brand)')
+                    : 'var(--border-subtle)',
                   color: cartEntries.length > 0 ? '#090d16' : 'var(--text-muted)',
                   fontWeight: 800,
                   fontSize: '1rem',
                   gap: '0.5rem',
                   cursor: cartEntries.length > 0 ? 'pointer' : 'not-allowed',
-                  boxShadow: cartEntries.length > 0 ? 'var(--shadow-neon-green)' : 'none'
+                  boxShadow: cartEntries.length > 0 ? 'var(--shadow-neon-green)' : 'none',
+                  border: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
                 }}
               >
                 <Check size={20} />
-                {loading ? 'Cargando comanda...' : `Confirmar y Cargar a Mesa ${table.table_number}`}
+                {loading ? 'Cargando comanda...' : (
+                  table.type !== 'barra' && chargeDestination === 'personal'
+                    ? `Confirmar a Cuenta Personal (${personalCustomer.trim() || 'Aparte'})`
+                    : (table.type === 'barra' ? `Confirmar Pedido a ${table.name}` : `Confirmar y Cargar a Mesa ${table.table_number}`)
+                )}
               </button>
             </div>
           </div>

@@ -137,11 +137,32 @@ export const api = {
     return res.json();
   },
 
-  async createBarTab(name) {
+  async createBarTab(nameOrObj) {
+    const payload = typeof nameOrObj === 'object' && nameOrObj !== null
+      ? nameOrObj
+      : { name: nameOrObj };
     const res = await fetch(`${HTTP_BASE}/api/bar-tabs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name })
+      body: JSON.stringify(payload)
+    });
+    return res.json();
+  },
+
+  async updateBarTab(tableId, data) {
+    const res = await fetch(`${HTTP_BASE}/api/bar-tabs/${tableId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    return res.json();
+  },
+
+  async separateOrderItem(itemId, { location = '', customerName = '', targetTableId = null }) {
+    const res = await fetch(`${HTTP_BASE}/api/order-items/${itemId}/separate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ location, customerName, targetTableId })
     });
     return res.json();
   },
@@ -358,6 +379,13 @@ export const api = {
     return res.json();
   },
 
+  async deleteTable(id) {
+    const res = await fetch(`${HTTP_BASE}/api/tables/${id}`, {
+      method: 'DELETE'
+    });
+    return res.json();
+  },
+
   async getAnalytics(range = 'today') {
     const res = await fetch(`${HTTP_BASE}/api/admin/analytics?range=${range}`);
     return res.json();
@@ -418,6 +446,115 @@ export const api = {
 
   async getWaiterSales(range = 'today') {
     const res = await fetch(`${HTTP_BASE}/api/reports/waiters?range=${range}`);
+    return res.json();
+  },
+
+  async getLicense() {
+    const res = await fetch(`${HTTP_BASE}/api/license`);
+    return res.json();
+  },
+
+  async activateLicense(licenseKey) {
+    const res = await fetch(`${HTTP_BASE}/api/license/activate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ licenseKey })
+    });
+    return res.json();
+  },
+
+  async testWhatsAppNotification(phone = '') {
+    const res = await fetch(`${HTTP_BASE}/api/notifications/whatsapp-test`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone })
+    });
+    return res.json();
+  },
+
+  // --- CEO & MULTI-TENANT MANAGEMENT ---
+  async ceoLogin(pin) {
+    const res = await fetch(`${HTTP_BASE}/api/ceo/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin })
+    });
+    return res.json();
+  },
+
+  async getCEOOverview() {
+    const res = await fetch(`${HTTP_BASE}/api/ceo/overview`);
+    return res.json();
+  },
+
+  async createBusiness(data) {
+    const res = await fetch(`${HTTP_BASE}/api/ceo/businesses`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    return res.json();
+  },
+
+  async updateBusiness(id, data) {
+    const res = await fetch(`${HTTP_BASE}/api/ceo/businesses/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    return res.json();
+  },
+
+  async deleteBusiness(id) {
+    const res = await fetch(`${HTTP_BASE}/api/ceo/businesses/${id}`, {
+      method: 'DELETE'
+    });
+    return res.json();
+  },
+
+  async generateBusinessLicense(id, data = {}) {
+    const res = await fetch(`${HTTP_BASE}/api/ceo/businesses/${id}/license`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    return res.json();
+  },
+
+  async switchActiveBusiness(businessId) {
+    const res = await fetch(`${HTTP_BASE}/api/ceo/switch-business`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ businessId })
+    });
+    return res.json();
+  },
+
+  async getCurrentBusiness() {
+    const res = await fetch(`${HTTP_BASE}/api/business/current`);
+    return res.json();
+  },
+
+  async extendBusinessSubscription(id, duration = '1_month') {
+    const res = await fetch(`${HTTP_BASE}/api/ceo/businesses/${id}/extend-subscription`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ duration })
+    });
+    return res.json();
+  },
+
+  async getBackups() {
+    const res = await fetch(`${HTTP_BASE}/api/admin/backups`);
+    return res.json();
+  },
+
+  async createBackup(label = 'manual') {
+    const res = await fetch(`${HTTP_BASE}/api/admin/backups/create`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label })
+    });
     return res.json();
   }
 };

@@ -9,8 +9,11 @@ import HistoryModal from './components/HistoryModal';
 import AnalyticsModal from './components/AnalyticsModal';
 import ConnectDevicesModal from './components/ConnectDevicesModal';
 import StaffLoginModal from './components/StaffLoginModal';
+import CEOMasterHubModal from './components/CEOMasterHubModal';
+import SubscriptionLockOverlay from './components/SubscriptionLockOverlay';
 import { network, api } from './services/api';
 import { sounds } from './utils/audio';
+import { setCurrencyConfig } from './utils/formatters';
 
 export default function App() {
   // Check URL search params for table link (e.g. ?mesa=1, ?table=1, ?tableId=1)
@@ -24,8 +27,30 @@ export default function App() {
   const [selectedTableId, setSelectedTableId] = useState(initialTableId);
   const [tablesOverview, setTablesOverview] = useState([]);
   const [stats, setStats] = useState(null);
+  const [licenseInfo, setLicenseInfo] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
   const [lowStockCount, setLowStockCount] = useState(0);
+
+  // Theme state ('dark' | 'light')
+  const [theme, setTheme] = useState(() => {
+    try {
+      return localStorage.getItem('billarpulse_theme') || 'dark';
+    } catch {
+      return 'dark';
+    }
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    try {
+      localStorage.setItem('billarpulse_theme', theme);
+    } catch {}
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(prev => prev === 'light' ? 'dark' : 'light');
+    sounds.playScoreBeep(true);
+  };
 
   // Staff / Mesero authentication state
   const [currentStaff, setCurrentStaff] = useState(() => {
@@ -38,25 +63,44 @@ export default function App() {
   });
   const [isStaffLoginOpen, setIsStaffLoginOpen] = useState(false);
 
-  // Security, Report, Admin, Analytics and Connect Device modals
+  // Security, Report, Admin, Analytics, Connect Device and CEO Hub modals
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [isShiftReportOpen, setIsShiftReportOpen] = useState(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
+  const [adminInitialTab, setAdminInitialTab] = useState('inventory');
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [isAnalyticsModalOpen, setIsAnalyticsModalOpen] = useState(false);
   const [isConnectDevicesOpen, setIsConnectDevicesOpen] = useState(false);
+  const [isCEOHubOpen, setIsCEOHubOpen] = useState(false);
+  const [currentBusiness, setCurrentBusiness] = useState(null);
+  const [isCEOMode, setIsCEOMode] = useState(false);
+
+  const handleOpenAdmin = (tab = 'inventory') => {
+    const validTab = (typeof tab === 'string' && tab) ? tab : 'inventory';
+    setAdminInitialTab(validTab);
+    setIsAdminModalOpen(true);
+  };
 
   // Initial fetch
   const refreshData = useCallback(async () => {
     try {
-      const [tablesRes, statsRes, lowStockRes] = await Promise.all([
+      const [tablesRes, statsRes, lowStockRes, settingsRes, licenseRes, bizRes] = await Promise.all([
         api.getTables(),
         api.getStats(),
-        api.getLowStockProducts()
+        api.getLowStockProducts(),
+        api.getSettings().catch(() => ({})),
+        api.getLicense().catch(() => ({})),
+        api.getCurrentBusiness().catch(() => ({}))
       ]);
-      if (tablesRes.success) setTablesOverview(tablesRes.data);
-      if (statsRes.success) setStats(statsRes.data);
-      if (lowStockRes.success) setLowStockCount(lowStockRes.count || (lowStockRes.data ? lowStockRes.data.length : 0));
+      if (tablesRes?.success) setTablesOverview(tablesRes.data);
+      if (statsRes?.success) setStats(statsRes.data);
+      if (lowStockRes?.success) setLowStockCount(lowStockRes.count || (lowStockRes.data ? lowStockRes.data.length : 0));
+      if (settingsRes?.success && settingsRes.data) setCurrencyConfig(settingsRes.data);
+      if (licenseRes?.success) setLicenseInfo(licenseRes.data);
+      if (bizRes?.success && bizRes.business) {
+        setCurrentBusiness(bizRes.business);
+        setIsCEOMode(bizRes.business.id !== 1);
+      }
     } catch (e) {
       console.error('Error fetching initial data:', e);
     }
@@ -64,6 +108,21 @@ export default function App() {
 
   useEffect(() => {
     refreshData();
+
+    // Check for secret URL param for Victor & partner: ?ceo=1 or ?master=1
+    if (urlParams.get('ceo') === '1' || urlParams.get('master') === '1') {
+      setIsCEOHubOpen(true);
+    }
+
+    // Secret keyboard shortcut for Victor and partner: Ctrl + Shift + C or Alt + C
+    const handleSecretKey = (e) => {
+      if ((e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'c') || (e.altKey && e.key.toLowerCase() === 'c')) {
+        e.preventDefault();
+        sounds.playScoreBeep(true);
+        setIsCEOHubOpen(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleSecretKey);
 
     // Connect to LAN WebSocket
     network.connect();
@@ -75,7 +134,17 @@ export default function App() {
       } else if (msg.type === 'INIT_STATE') {
         setTablesOverview(msg.tablesOverview || []);
         setStats(msg.stats || null);
+        if (msg.settings) setCurrencyConfig(msg.settings);
+        if (msg.license) setLicenseInfo(msg.license);
         setIsConnected(true);
+      } else if (msg.type === 'LICENSE_UPDATED') {
+        if (msg.license) setLicenseInfo(msg.license);
+      } else if (msg.type === 'BUSINESS_SWITCHED') {
+        if (msg.business) {
+          setCurrentBusiness(msg.business);
+          setIsCEOMode(msg.business.id !== 1);
+        }
+        refreshData();
       } else if (msg.type === 'TABLE_STATE_CHANGED') {
         if (msg.tablesOverview) setTablesOverview(msg.tablesOverview);
         if (msg.stats) setStats(msg.stats);
@@ -88,9 +157,30 @@ export default function App() {
     });
 
     return () => {
+      window.removeEventListener('keydown', handleSecretKey);
       unsubscribe();
     };
   }, [refreshData]);
+
+  const handleSwitchBusiness = (newBiz) => {
+    setCurrentBusiness(newBiz);
+    setIsCEOMode(newBiz.id !== 1);
+    refreshData();
+  };
+
+  const handleExitCEOMode = async () => {
+    try {
+      sounds.playScoreBeep(true);
+      const res = await api.switchActiveBusiness(1);
+      if (res.success) {
+        setCurrentBusiness(res.activeTenant);
+        setIsCEOMode(false);
+        refreshData();
+      }
+    } catch (e) {
+      alert('Error volviendo a la sede principal: ' + e.message);
+    }
+  };
 
   const handleSelectTableForKiosk = (tableId) => {
     setSelectedTableId(tableId);
@@ -127,14 +217,21 @@ export default function App() {
         tables={tablesOverview}
         isDirectTable={isDirectTable}
         onOpenShiftReport={() => setIsShiftReportOpen(true)}
-        onOpenAdmin={() => setIsAdminModalOpen(true)}
+        onOpenAdmin={handleOpenAdmin}
         onOpenHistory={() => setIsHistoryModalOpen(true)}
         onOpenAnalytics={() => setIsAnalyticsModalOpen(true)}
         onOpenConnectDevices={() => setIsConnectDevicesOpen(true)}
         onRequestCajaAccess={handleRequestCajaAccess}
         lowStockCount={lowStockCount}
+        licenseInfo={licenseInfo}
         currentStaff={currentStaff}
+        theme={theme}
+        onToggleTheme={toggleTheme}
         onOpenStaffLogin={() => setIsStaffLoginOpen(true)}
+        onOpenCEOHub={() => setIsCEOHubOpen(true)}
+        currentBusiness={currentBusiness}
+        isCEOMode={isCEOMode}
+        onExitCEOMode={handleExitCEOMode}
       />
 
       <main style={{ flex: 1, padding: '1rem' }}>
@@ -145,15 +242,32 @@ export default function App() {
             onStateChange={refreshData}
             onSelectTableForKiosk={handleSelectTableForKiosk}
             currentStaff={currentStaff}
+            onOpenAdmin={handleOpenAdmin}
           />
         ) : (
           <TableKiosk
             tableId={selectedTableId}
             tablesOverview={tablesOverview}
             onStateChange={refreshData}
+            onSelectTable={setSelectedTableId}
           />
         )}
       </main>
+
+      {/* Subscription Lock Screen when club is expired/suspended */}
+      <SubscriptionLockOverlay
+        business={currentBusiness}
+        onOpenCEOHub={() => setIsCEOHubOpen(true)}
+        onRefresh={refreshData}
+      />
+
+      {/* CEO Master Hub Modal (Control Maestro de Empresas & Licencias) */}
+      <CEOMasterHubModal
+        isOpen={isCEOHubOpen}
+        onClose={() => setIsCEOHubOpen(false)}
+        onSwitchBusiness={handleSwitchBusiness}
+        currentBusiness={currentBusiness}
+      />
 
       {/* Staff / Waiter Login Modal */}
       <StaffLoginModal
@@ -168,6 +282,7 @@ export default function App() {
         isOpen={isPinModalOpen}
         onClose={() => setIsPinModalOpen(false)}
         onSuccess={handlePinSuccess}
+        onOpenCEOHub={() => setIsCEOHubOpen(true)}
       />
 
       {/* Shift / Arqueo Report Modal */}
@@ -181,6 +296,9 @@ export default function App() {
         isOpen={isAdminModalOpen}
         onClose={() => setIsAdminModalOpen(false)}
         onRefreshData={refreshData}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        initialTab={adminInitialTab}
       />
 
       {/* History and Invoices Modal */}

@@ -38,6 +38,59 @@
   --shadow-neon-red: 0 0 24px var(--color-alert-glow);
 }
 
+[data-theme="light"] {
+  --bg-primary: #f1f5f9;
+  --bg-secondary: #ffffff;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f8fafc;
+  --bg-surface: #e2e8f0;
+  
+  --border-subtle: #cbd5e1;
+  --border-focus: #10b981;
+
+  --color-brand: #059669;
+  --color-brand-glow: rgba(5, 150, 105, 0.25);
+  
+  --color-gold: #d97706;
+  --color-gold-glow: rgba(217, 119, 6, 0.25);
+
+  --color-alert: #e11d48;
+  --color-alert-glow: rgba(225, 29, 72, 0.25);
+
+  --color-blue: #0284c7;
+  --color-purple: #7c3aed;
+
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+
+  --shadow-card: 0 4px 20px -2px rgba(0, 0, 0, 0.07), 0 2px 6px -1px rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="light"] .glass-panel {
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-card);
+}
+
+[data-theme="light"] header {
+  background: rgba(255, 255, 255, 0.94) !important;
+  border-bottom: 1px solid var(--border-subtle) !important;
+}
+
+[data-theme="light"] input,
+[data-theme="light"] select,
+[data-theme="light"] textarea {
+  color: #0f172a !important;
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+}
+
+[data-theme="light"] input::placeholder,
+[data-theme="light"] textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;

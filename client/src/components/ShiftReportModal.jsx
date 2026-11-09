@@ -18,7 +18,8 @@ import {
   TrendingUp,
   DollarSign,
   Calendar,
-  UserCheck
+  UserCheck,
+  MessageCircle
 } from 'lucide-react';
 import { formatCurrency } from '../utils/formatters';
 import { api } from '../services/api';
@@ -135,6 +136,61 @@ export default function ShiftReportModal({ isOpen, onClose }) {
       loadShiftHistory();
     } catch (err) {
       alert('Error cerrando turno: ' + err.message);
+    }
+  };
+
+  const handleShareWhatsApp = async () => {
+    try {
+      const settingsRes = await api.getSettings();
+      const settings = settingsRes?.data || {};
+      const phone = settings.owner_whatsapp || '';
+      
+      const clubName = settings.business_name || 'BILLARPULSE';
+      const now = new Date().toLocaleString(settings.currency_locale || 'es-CO');
+      const diff = Number(report?.difference || 0);
+      const diffText = diff === 0
+        ? `✅ *Cuadre Perfecto:* ${formatCurrency(0)}`
+        : diff > 0
+        ? `🟢 *Sobrante en Caja:* +${formatCurrency(diff)}`
+        : `🔴 *Faltante en Caja:* ${formatCurrency(diff)}`;
+
+      const msg = [
+        `🎱 *BILLARPULSE - CIERRE DE TURNO (CORTE Z)*`,
+        `🏢 *Club:* ${clubName}`,
+        `👤 *Cajero:* ${report?.shift?.closed_by || report?.shift?.opened_by || 'Caja'}`,
+        `🕒 *Fecha:* ${now}`,
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+        `💰 *TOTAL FACTURADO:* *${formatCurrency(report?.grandTotal || 0)}*`,
+        `⏱️ *Tiempo en Mesas:* ${formatCurrency(report?.totalTimeRevenue || 0)} (${report?.sessionCount || 0} sesiones)`,
+        `🍻 *Consumo en Barra:* ${formatCurrency(report?.totalConsumptionRevenue || 0)}`,
+        ``,
+        `💳 *Formas de Pago:*`,
+        `💵 Efectivo: ${formatCurrency(report?.totalCash || 0)}`,
+        `📱 Transferencia/QR: ${formatCurrency(report?.totalTransfer || 0)}`,
+        `💳 Tarjetas: ${formatCurrency(report?.totalCard || 0)}`,
+        ``,
+        `⚖️ *Arqueo de Efectivo:*`,
+        `📥 Fondo Inicial: ${formatCurrency(report?.initialCash || 0)}`,
+        `💵 Efectivo Esperado: ${formatCurrency(report?.expectedCash || 0)}`,
+        `🔎 Efectivo Contado: ${formatCurrency(report?.actualCash != null ? report.actualCash : report?.expectedCash || 0)}`,
+        `${diffText}`,
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+        `_Reporte generado automáticamente desde BillarPulse POS_`
+      ].join('\n');
+
+      let cleanPhone = phone.replace(/[^\d+]/g, '');
+      if (!cleanPhone.startsWith('+') && cleanPhone.length === 10 && cleanPhone.startsWith('3')) {
+        cleanPhone = '57' + cleanPhone;
+      }
+      cleanPhone = cleanPhone.replace('+', '');
+
+      const url = cleanPhone 
+        ? `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(msg)}`
+        : `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
+
+      window.open(url, '_blank');
+    } catch (e) {
+      alert('Error preparando reporte para WhatsApp: ' + e.message);
     }
   };
 
@@ -290,6 +346,29 @@ export default function ShiftReportModal({ isOpen, onClose }) {
               >
                 <Printer size={15} />
                 Imprimir Reporte Z
+              </button>
+            )}
+
+            {activeTab === 'current' && report && (
+              <button
+                onClick={handleShareWhatsApp}
+                style={{
+                  background: 'rgba(37, 211, 102, 0.15)',
+                  color: '#25D366',
+                  border: '1px solid rgba(37, 211, 102, 0.4)',
+                  padding: '0.5rem 1rem',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: '0.8rem',
+                  fontWeight: 800,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.45rem',
+                  cursor: 'pointer'
+                }}
+                title="Compartir o enviar este reporte de caja directo al WhatsApp del dueño"
+              >
+                <MessageCircle size={15} />
+                Enviar por WhatsApp
               </button>
             )}
 

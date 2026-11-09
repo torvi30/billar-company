@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  X, 
-  QrCode, 
-  Wifi, 
-  Smartphone, 
-  Tablet, 
-  Copy, 
-  Check, 
-  ExternalLink, 
+import {
+  X,
+  QrCode,
+  Wifi,
+  Smartphone,
+  Tablet,
+  Copy,
+  Check,
+  ExternalLink,
   HelpCircle,
   Laptop,
   CheckCircle,
@@ -92,7 +92,7 @@ export default function ConnectDevicesModal({ isOpen, onClose, tables = [] }) {
   const poolTables = tables.filter(t => t.type !== 'barra');
 
   return (
-    <div 
+    <div
       onClick={onClose}
       style={{
         position: 'fixed',
@@ -110,8 +110,8 @@ export default function ConnectDevicesModal({ isOpen, onClose, tables = [] }) {
         cursor: 'pointer'
       }}
     >
-      <div 
-        className="glass-panel" 
+      <div
+        className="glass-panel"
         onClick={(e) => e.stopPropagation()}
         style={{
           width: '100%',
@@ -195,7 +195,7 @@ export default function ConnectDevicesModal({ isOpen, onClose, tables = [] }) {
 
         {/* Content */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-          
+
           {/* Target Selector */}
           <div>
             <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#fff', marginBottom: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
@@ -279,7 +279,7 @@ export default function ConnectDevicesModal({ isOpen, onClose, tables = [] }) {
 
           {/* Main 2-Column Display: QR Code + Steps */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.25fr', gap: '1.5rem', alignItems: 'center' }}>
-            
+
             {/* QR Card */}
             <div className="glass-panel" style={{
               padding: '1.5rem',
@@ -299,9 +299,9 @@ export default function ConnectDevicesModal({ isOpen, onClose, tables = [] }) {
                   boxShadow: '0 10px 30px rgba(0, 0, 0, 0.5)',
                   display: 'inline-block'
                 }}>
-                  <img 
-                    src={qrDataUrl} 
-                    alt="Código QR de Conexión" 
+                  <img
+                    src={qrDataUrl}
+                    alt="Código QR de Conexión"
                     style={{ width: '220px', height: '220px', display: 'block' }}
                   />
                 </div>

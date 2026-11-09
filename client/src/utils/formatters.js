@@ -1,6 +1,36 @@
-export function formatCurrency(amount) {
-  if (amount == null || isNaN(amount)) return '$ 0';
-  return '$ ' + Math.round(amount).toLocaleString('es-CO');
+let currentCurrencyConfig = {
+  symbol: '$',
+  code: 'COP',
+  locale: 'es-CO',
+  decimals: 0
+};
+
+export function setCurrencyConfig(config = {}) {
+  if (!config) return;
+  currentCurrencyConfig = {
+    symbol: config.currency_symbol || config.symbol || currentCurrencyConfig.symbol,
+    code: config.currency_code || config.code || currentCurrencyConfig.code,
+    locale: config.currency_locale || config.locale || currentCurrencyConfig.locale,
+    decimals: config.currency_decimals != null ? Number(config.currency_decimals) : currentCurrencyConfig.decimals
+  };
+}
+
+export function getCurrencyConfig() {
+  return { ...currentCurrencyConfig };
+}
+
+export function formatCurrency(amount, customConfig = null) {
+  if (amount == null || isNaN(amount)) {
+    const sym = customConfig?.symbol || currentCurrencyConfig.symbol;
+    return `${sym} 0`;
+  }
+  const cfg = customConfig ? { ...currentCurrencyConfig, ...customConfig } : currentCurrencyConfig;
+  const num = Number(amount);
+  const formattedNumber = cfg.decimals > 0
+    ? num.toLocaleString(cfg.locale, { minimumFractionDigits: cfg.decimals, maximumFractionDigits: cfg.decimals })
+    : Math.round(num).toLocaleString(cfg.locale);
+
+  return `${cfg.symbol} ${formattedNumber}`;
 }
 
 export function formatDuration(startIsoString, endIsoString = null) {

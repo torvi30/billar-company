@@ -3,7 +3,7 @@ import { Lock, X, Delete } from 'lucide-react';
 import { api } from '../services/api';
 import { sounds } from '../utils/audio';
 
-export default function PinModal({ isOpen, onClose, onSuccess }) {
+export default function PinModal({ isOpen, onClose, onSuccess, onOpenCEOHub = null }) {
   const [pin, setPin] = useState('');
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -29,6 +29,15 @@ export default function PinModal({ isOpen, onClose, onSuccess }) {
   };
 
   const verify = async (codeToVerify) => {
+    // Acceso Secreto para Víctor y su socio: Si digitan 9999 abre el portal CEO directamente
+    if (codeToVerify === '9999') {
+      sounds.playCashRegister();
+      setPin('');
+      onClose();
+      if (onOpenCEOHub) onOpenCEOHub();
+      return;
+    }
+
     setLoading(true);
     try {
       const res = await api.verifyPin(codeToVerify);

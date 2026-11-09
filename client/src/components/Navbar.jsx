@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Wifi, WifiOff, Volume2, LayoutGrid, Tablet, Clock, FileText, Settings, Receipt, TrendingUp, QrCode, Lock } from 'lucide-react';
+import { Wifi, WifiOff, Volume2, LayoutGrid, Tablet, Clock, FileText, Settings, Receipt, TrendingUp, QrCode, Lock, Sun, Moon, ChevronLeft, ChevronRight } from 'lucide-react';
 import { sounds } from '../utils/audio';
 
 export default function Navbar({ 
@@ -17,8 +17,15 @@ export default function Navbar({
   onOpenConnectDevices,
   onRequestCajaAccess,
   lowStockCount = 0,
+  licenseInfo = null,
   currentStaff = null,
-  onOpenStaffLogin = () => {}
+  theme = 'dark',
+  onToggleTheme = () => {},
+  onOpenStaffLogin = () => {},
+  onOpenCEOHub = null,
+  currentBusiness = null,
+  isCEOMode = false,
+  onExitCEOMode = null
 }) {
   const [timeStr, setTimeStr] = useState('');
   const isWaiter = currentStaff?.role === 'mesero';
@@ -32,6 +39,26 @@ export default function Navbar({
     const interval = setInterval(update, 1000);
     return () => clearInterval(interval);
   }, []);
+
+  // Stealth CEO Hub access (5 rapid clicks on logo for Victor & partner)
+  const [logoClicks, setLogoClicks] = useState(0);
+  const [lastClickTime, setLastClickTime] = useState(0);
+
+  const handleLogoClick = () => {
+    const now = Date.now();
+    if (now - lastClickTime < 700) {
+      const count = logoClicks + 1;
+      setLogoClicks(count);
+      if (count >= 5) {
+        setLogoClicks(0);
+        sounds.playCashRegister();
+        if (onOpenCEOHub) onOpenCEOHub();
+      }
+    } else {
+      setLogoClicks(1);
+    }
+    setLastClickTime(now);
+  };
 
   const handleCajaClick = () => {
     if (currentView === 'kiosk') {
@@ -54,8 +81,12 @@ export default function Navbar({
       top: 0,
       zIndex: 100
     }}>
-      {/* Brand */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+      {/* Brand (Clic 5 veces aquí para acceso secreto de dueños) */}
+      <div 
+        onClick={handleLogoClick}
+        title=""
+        style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', cursor: 'default', userSelect: 'none' }}
+      >
         <div style={{
           width: '38px',
           height: '38px',
@@ -76,20 +107,59 @@ export default function Navbar({
             <span style={{ fontSize: '1.25rem', fontWeight: 800, letterSpacing: '-0.02em', color: '#fff' }}>
               Billar<span style={{ color: 'var(--color-brand)' }}>Pulse</span>
             </span>
-            <span style={{
-              fontSize: '0.65rem',
-              fontWeight: 700,
-              padding: '2px 6px',
-              borderRadius: '4px',
-              background: 'rgba(0, 230, 118, 0.15)',
-              color: 'var(--color-brand)',
-              border: '1px solid rgba(0, 230, 118, 0.3)'
-            }}>
-              LAN v1.0
-            </span>
+            {licenseInfo?.status === 'trial' ? (
+              <span
+                onClick={() => onOpenAdmin('license')}
+                title="Modo de evaluación. Clic para activar clave de licencia."
+                style={{
+                  fontSize: '0.65rem',
+                  fontWeight: 800,
+                  padding: '2px 7px',
+                  borderRadius: '4px',
+                  background: 'rgba(234, 179, 8, 0.2)',
+                  color: '#facc15',
+                  border: '1px solid rgba(234, 179, 8, 0.4)',
+                  cursor: 'pointer'
+                }}
+              >
+                DEMO ({licenseInfo.daysRemaining || 15}d)
+              </span>
+            ) : licenseInfo?.status === 'active' ? (
+              <span style={{
+                fontSize: '0.65rem',
+                fontWeight: 800,
+                padding: '2px 7px',
+                borderRadius: '4px',
+                background: 'rgba(0, 230, 118, 0.15)',
+                color: 'var(--color-brand)',
+                border: '1px solid rgba(0, 230, 118, 0.3)'
+              }}>
+                PRO ({licenseInfo.maxTables} mesas)
+              </span>
+            ) : (
+              <span style={{
+                fontSize: '0.65rem',
+                fontWeight: 700,
+                padding: '2px 6px',
+                borderRadius: '4px',
+                background: 'rgba(0, 230, 118, 0.15)',
+                color: 'var(--color-brand)',
+                border: '1px solid rgba(0, 230, 118, 0.3)'
+              }}>
+                LAN v1.0
+              </span>
+            )}
           </div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-            POS & Marcador Táctil Offline-First
+          <div style={{
+            fontSize: '0.75rem',
+            color: 'var(--text-muted)',
+            fontWeight: 500,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.35rem'
+          }}>
+            <span>{currentBusiness?.name || licenseInfo?.businessName || 'POS & Marcador Táctil Offline-First'}</span>
+            {currentBusiness?.city && <span style={{ opacity: 0.6 }}>• {currentBusiness.city}</span>}
           </div>
         </div>
       </div>
@@ -161,7 +231,7 @@ export default function Navbar({
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
             {!isWaiter && lowStockCount > 0 && (
               <button
-                onClick={onOpenAdmin}
+                onClick={() => onOpenAdmin('inventory-low-stock')}
                 style={{
                   padding: '0.45rem 0.85rem',
                   background: 'rgba(251, 191, 36, 0.15)',
@@ -174,7 +244,7 @@ export default function Navbar({
                   cursor: 'pointer',
                   boxShadow: '0 0 12px rgba(251, 191, 36, 0.25)'
                 }}
-                title="Hay productos con stock por debajo de la alerta mínima configurada"
+                title="Hay productos con stock por debajo de la alerta mínima configurada. Clic para ver y reabastecer."
               >
                 ⚠️ {lowStockCount} Bajo Stock
               </button>
@@ -182,7 +252,7 @@ export default function Navbar({
 
             {!isWaiter && (
               <button
-                onClick={onOpenAdmin}
+                onClick={() => onOpenAdmin('inventory')}
                 style={{
                   padding: '0.5rem 0.85rem',
                   background: 'rgba(255, 255, 255, 0.08)',
@@ -262,27 +332,86 @@ export default function Navbar({
 
         {/* Table Selector if in Kiosk view (solo si no es link directo) */}
         {!isDirectTable && currentView === 'kiosk' && (
-          <select
-            value={selectedTableId}
-            onChange={(e) => setSelectedTableId(Number(e.target.value))}
-            style={{
-              background: 'var(--bg-card)',
-              color: '#fff',
-              border: '1px solid var(--border-subtle)',
-              padding: '0.5rem 0.75rem',
-              borderRadius: 'var(--radius-sm)',
-              fontSize: '0.85rem',
-              fontWeight: 700,
-              cursor: 'pointer',
-              outline: 'none'
-            }}
-          >
-            {tables.map(t => (
-              <option key={t.id} value={t.id}>
-                Mesa {t.table_number} - {t.name}
-              </option>
-            ))}
-          </select>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+            <button
+              type="button"
+              onClick={() => {
+                const pool = tables.filter(t => t.type !== 'barra');
+                const idx = pool.findIndex(t => t.id === selectedTableId);
+                const prev = idx > 0 ? pool[idx - 1] : pool[pool.length - 1];
+                if (prev) {
+                  sounds.playScoreBeep(true);
+                  setSelectedTableId(prev.id);
+                }
+              }}
+              title="Mesa anterior (←)"
+              style={{
+                background: 'rgba(255, 255, 255, 0.08)',
+                color: '#fff',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '0.45rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+            >
+              <ChevronLeft size={16} />
+            </button>
+
+            <select
+              value={selectedTableId}
+              onChange={(e) => {
+                sounds.playScoreBeep(true);
+                setSelectedTableId(Number(e.target.value));
+              }}
+              style={{
+                background: 'var(--bg-card)',
+                color: '#fff',
+                border: '1px solid var(--border-subtle)',
+                padding: '0.5rem 0.75rem',
+                borderRadius: 'var(--radius-sm)',
+                fontSize: '0.85rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+                outline: 'none'
+              }}
+            >
+              {tables.filter(t => t.type !== 'barra').map(t => (
+                <option key={t.id} value={t.id}>
+                  🎱 M-{t.table_number}: {t.name} ({t.status === 'occupied' ? '🟢 En Juego' : '⚪ Libre'})
+                </option>
+              ))}
+            </select>
+
+            <button
+              type="button"
+              onClick={() => {
+                const pool = tables.filter(t => t.type !== 'barra');
+                const idx = pool.findIndex(t => t.id === selectedTableId);
+                const next = idx < pool.length - 1 ? pool[idx + 1] : pool[0];
+                if (next) {
+                  sounds.playScoreBeep(true);
+                  setSelectedTableId(next.id);
+                }
+              }}
+              title="Mesa siguiente (→)"
+              style={{
+                background: 'rgba(255, 255, 255, 0.08)',
+                color: '#fff',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '0.45rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
         )}
       </div>
       )}
@@ -303,6 +432,26 @@ export default function Navbar({
           }}
         >
           <Volume2 size={16} />
+        </button>
+
+        {/* Theme Toggle Button (Light / Dark) */}
+        <button
+          onClick={onToggleTheme}
+          title={theme === 'light' ? 'Cambiar a Modo Oscuro (Noche)' : 'Cambiar a Modo Claro (Día)'}
+          style={{
+            background: theme === 'light' ? 'rgba(0, 0, 0, 0.06)' : 'rgba(255, 255, 255, 0.06)',
+            color: theme === 'light' ? '#0f172a' : 'var(--text-secondary)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 'var(--radius-sm)',
+            padding: '0.45rem',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'all 0.2s'
+          }}
+        >
+          {theme === 'light' ? <Moon size={16} /> : <Sun size={16} color="var(--color-gold)" />}
         </button>
 
         {/* Clock */}
@@ -358,6 +507,30 @@ export default function Navbar({
             PIN
           </span>
         </button>
+
+        {/* Exit CEO Auditor Mode if currently inspecting another club */}
+        {isCEOMode && onExitCEOMode && (
+          <button
+            onClick={onExitCEOMode}
+            title="Volver a la sede matriz principal"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.35rem',
+              padding: '0.38rem 0.65rem',
+              borderRadius: 'var(--radius-sm)',
+              background: 'rgba(239, 68, 68, 0.15)',
+              border: '1px solid rgba(239, 68, 68, 0.4)',
+              color: 'var(--color-alert)',
+              fontSize: '0.75rem',
+              fontWeight: 800,
+              cursor: 'pointer'
+            }}
+          >
+            <span>↩️</span>
+            <span>Salir Auditoría</span>
+          </button>
+        )}
 
         {/* Connect tablets QR button */}
         <button

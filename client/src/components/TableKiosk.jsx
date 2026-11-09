@@ -14,13 +14,18 @@ import {
   Users,
   User,
   X,
-  Edit2
+  Edit2,
+  ChevronLeft,
+  ChevronRight,
+  Layers,
+  LayoutGrid,
+  Wrench
 } from 'lucide-react';
 import { formatCurrency, formatDuration, formatSessionDuration, calculateSessionLiveCost, calculateLiveTimeCost } from '../utils/formatters';
 import { sounds } from '../utils/audio';
 import { api } from '../services/api';
 
-export default function TableKiosk({ tableId, tablesOverview, onStateChange }) {
+export default function TableKiosk({ tableId, tablesOverview, onStateChange, onSelectTable = null }) {
   const currentTable = tablesOverview.find(t => t.id === tableId) || null;
   const session = currentTable ? currentTable.current_session : null;
   const score = currentTable ? currentTable.score : {
@@ -38,6 +43,62 @@ export default function TableKiosk({ tableId, tablesOverview, onStateChange }) {
   const [confirmResetOpen, setConfirmResetOpen] = useState(false);
   const [showBillModal, setShowBillModal] = useState(false);
   const [accountOrders, setAccountOrders] = useState([]);
+
+  // Categorías y navegación de mesas
+  const poolTables = (tablesOverview || []).filter(t => t.type !== 'barra');
+  const categoryTypes = [...new Set(poolTables.map(t => t.type || 'pool'))];
+  const [selectedCategory, setSelectedCategory] = useState('all');
+
+  const filteredTables = selectedCategory === 'all'
+    ? poolTables
+    : poolTables.filter(t => (t.type || 'pool') === selectedCategory);
+
+  const currentTableIndex = filteredTables.findIndex(t => t.id === currentTable?.id);
+
+  const getCategoryMeta = (type) => {
+    switch (type) {
+      case 'pool':
+        return { label: 'Pool / Bola 8', icon: '🎱', color: '#3b82f6' };
+      case 'tres_bandas':
+        return { label: 'Tres Bandas', icon: '🔴', color: '#f43f5e' };
+      case 'snooker':
+        return { label: 'Snooker VIP', icon: '🟣', color: '#a855f7' };
+      case 'carambola':
+        return { label: 'Carambola Libre', icon: '⚪', color: '#f59e0b' };
+      default:
+        return { label: type ? type.toUpperCase() : 'General', icon: '🎱', color: 'var(--color-brand)' };
+    }
+  };
+
+  const handlePrevTable = () => {
+    if (filteredTables.length <= 1) return;
+    sounds.playScoreBeep(true);
+    const newIndex = currentTableIndex > 0 ? currentTableIndex - 1 : filteredTables.length - 1;
+    if (onSelectTable) onSelectTable(filteredTables[newIndex].id);
+  };
+
+  const handleNextTable = () => {
+    if (filteredTables.length <= 1) return;
+    sounds.playScoreBeep(true);
+    const newIndex = currentTableIndex < filteredTables.length - 1 ? currentTableIndex + 1 : 0;
+    if (onSelectTable) onSelectTable(filteredTables[newIndex].id);
+  };
+
+  // Atajos de teclado: Flecha Izquierda (←) y Flecha Derecha (→) para pasar de pantallas
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        handlePrevTable();
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        handleNextTable();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [currentTableIndex, filteredTables]);
 
   const openAccountDetails = async () => {
     sounds.playScoreBeep(true);
@@ -168,17 +229,350 @@ export default function TableKiosk({ tableId, tablesOverview, onStateChange }) {
   const barConsumption = session ? (session.total_consumption || 0) : 0;
   const totalAccumulated = liveTimeCost + barConsumption;
 
+  const currentCategoryMeta = getCategoryMeta(currentTable.type);
+
   return (
     <div style={{
-      maxWidth: '1200px',
+      maxWidth: '1380px',
       margin: '0 auto',
-      padding: '1.25rem',
+      padding: '0.75rem 1rem 1.5rem',
       display: 'flex',
       flexDirection: 'column',
-      gap: '1.25rem',
+      gap: '1rem',
       minHeight: 'calc(100vh - 75px)',
       justifyContent: 'space-between'
     }}>
+      {/* --- SECCIÓN SELECTOR DE MESAS POR CATEGORÍAS & NAVEGACIÓN RÁPIDA --- */}
+      {poolTables.length > 0 && (
+        <div className="glass-panel" style={{
+          padding: '0.85rem 1.25rem',
+          borderRadius: 'var(--radius-lg)',
+          border: '1px solid var(--border-subtle)',
+          background: 'rgba(15, 23, 42, 0.85)',
+          boxShadow: 'var(--shadow-card)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '0.75rem'
+        }}>
+          {/* Fila Superior: Filtros de Categorías + Controles de Navegación Anterior/Siguiente */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '0.75rem'
+          }}>
+            {/* Categorías */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
+              <span style={{
+                fontSize: '0.75rem',
+                fontWeight: 800,
+                color: 'var(--text-muted)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.04em',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                marginRight: '0.25rem'
+              }}>
+                <Layers size={14} color="var(--color-brand)" /> Categorías:
+              </span>
+
+              {/* Píldora "Todas" */}
+              <button
+                type="button"
+                onClick={() => setSelectedCategory('all')}
+                style={{
+                  padding: '0.35rem 0.85rem',
+                  borderRadius: 'var(--radius-full)',
+                  fontSize: '0.78rem',
+                  fontWeight: 800,
+                  background: selectedCategory === 'all' ? 'var(--color-brand)' : 'rgba(255, 255, 255, 0.05)',
+                  color: selectedCategory === 'all' ? '#090d16' : '#fff',
+                  border: `1px solid ${selectedCategory === 'all' ? 'var(--color-brand)' : 'var(--border-subtle)'}`,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  boxShadow: selectedCategory === 'all' ? 'var(--shadow-neon-green)' : 'none',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <span>🎱 Todas</span>
+                <span style={{
+                  background: selectedCategory === 'all' ? '#090d16' : 'rgba(255, 255, 255, 0.12)',
+                  color: selectedCategory === 'all' ? '#fff' : 'var(--text-secondary)',
+                  fontSize: '0.68rem',
+                  padding: '1px 6px',
+                  borderRadius: 'var(--radius-full)'
+                }}>
+                  {poolTables.length}
+                </span>
+              </button>
+
+              {/* Píldoras por Categoría */}
+              {categoryTypes.map(catType => {
+                const meta = getCategoryMeta(catType);
+                const count = poolTables.filter(t => (t.type || 'pool') === catType).length;
+                const isSelected = selectedCategory === catType;
+                return (
+                  <button
+                    type="button"
+                    key={catType}
+                    onClick={() => setSelectedCategory(catType)}
+                    style={{
+                      padding: '0.35rem 0.85rem',
+                      borderRadius: 'var(--radius-full)',
+                      fontSize: '0.78rem',
+                      fontWeight: 800,
+                      background: isSelected ? meta.color : 'rgba(255, 255, 255, 0.05)',
+                      color: isSelected ? '#fff' : 'var(--text-secondary)',
+                      border: `1px solid ${isSelected ? meta.color : 'var(--border-subtle)'}`,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.35rem',
+                      boxShadow: isSelected ? `0 0 12px ${meta.color}50` : 'none',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <span>{meta.icon} {meta.label}</span>
+                    <span style={{
+                      background: isSelected ? 'rgba(0,0,0,0.3)' : 'rgba(255, 255, 255, 0.12)',
+                      color: '#fff',
+                      fontSize: '0.68rem',
+                      padding: '1px 6px',
+                      borderRadius: 'var(--radius-full)'
+                    }}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Controles de Navegación Rápida Anterior / Siguiente */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700 }}>
+                {currentTableIndex >= 0 ? `${currentTableIndex + 1} de ${filteredTables.length}` : ''}
+              </span>
+
+              <button
+                type="button"
+                onClick={handlePrevTable}
+                disabled={filteredTables.length <= 1}
+                title="Mesa anterior (Atajo: Flecha Izquierda ←)"
+                style={{
+                  padding: '0.4rem 0.75rem',
+                  background: 'rgba(255, 255, 255, 0.06)',
+                  border: '1px solid var(--border-subtle)',
+                  color: '#fff',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: '0.78rem',
+                  fontWeight: 700,
+                  cursor: filteredTables.length > 1 ? 'pointer' : 'not-allowed',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.25rem',
+                  opacity: filteredTables.length > 1 ? 1 : 0.4
+                }}
+              >
+                <ChevronLeft size={16} /> Anterior
+              </button>
+
+              <button
+                type="button"
+                onClick={handleNextTable}
+                disabled={filteredTables.length <= 1}
+                title="Mesa siguiente (Atajo: Flecha Derecha →)"
+                style={{
+                  padding: '0.4rem 0.75rem',
+                  background: 'rgba(255, 255, 255, 0.06)',
+                  border: '1px solid var(--border-subtle)',
+                  color: '#fff',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: '0.78rem',
+                  fontWeight: 700,
+                  cursor: filteredTables.length > 1 ? 'pointer' : 'not-allowed',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.25rem',
+                  opacity: filteredTables.length > 1 ? 1 : 0.4
+                }}
+              >
+                Siguiente <ChevronRight size={16} />
+              </button>
+            </div>
+          </div>
+
+          {/* Carrusel / Tira de Tarjetas de Mesas */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: `repeat(auto-fill, minmax(180px, 1fr))`,
+            gap: '0.65rem',
+            overflowX: 'auto',
+            paddingBottom: '2px'
+          }}>
+            {filteredTables.map(t => {
+              const isSelected = t.id === currentTable?.id;
+              const tOccupied = t.status === 'occupied' && t.current_session;
+              const tPaused = tOccupied && Boolean(t.current_session.is_paused);
+              const tScore = t.score || { score1: 0, score2: 0 };
+              const meta = getCategoryMeta(t.type);
+
+              return (
+                <div
+                  key={t.id}
+                  onClick={() => {
+                    sounds.playScoreBeep(true);
+                    if (onSelectTable) onSelectTable(t.id);
+                  }}
+                  style={{
+                    padding: '0.7rem 0.85rem',
+                    borderRadius: 'var(--radius-md)',
+                    background: isSelected 
+                      ? 'linear-gradient(135deg, rgba(0, 230, 118, 0.18) 0%, rgba(15, 23, 42, 0.95) 100%)' 
+                      : tOccupied
+                        ? 'rgba(30, 41, 59, 0.6)'
+                        : 'rgba(255, 255, 255, 0.03)',
+                    border: isSelected 
+                      ? '2px solid var(--color-brand)' 
+                      : tOccupied 
+                        ? '1px solid rgba(59, 130, 246, 0.4)' 
+                        : '1px solid var(--border-subtle)',
+                    boxShadow: isSelected 
+                      ? '0 0 16px rgba(0, 230, 118, 0.35)' 
+                      : 'none',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.35rem',
+                    transition: 'all 0.15s ease',
+                    position: 'relative',
+                    transform: isSelected ? 'scale(1.02)' : 'scale(1)'
+                  }}
+                >
+                  {/* Cabecera de la mini-tarjeta */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <span style={{
+                        fontSize: '0.85rem',
+                        fontWeight: 900,
+                        color: isSelected ? 'var(--color-brand)' : '#fff',
+                        background: 'rgba(0, 0, 0, 0.35)',
+                        padding: '2px 6px',
+                        borderRadius: '4px'
+                      }}>
+                        M-{t.table_number}
+                      </span>
+                      <span style={{
+                        fontSize: '0.65rem',
+                        fontWeight: 800,
+                        color: meta.color,
+                        textTransform: 'uppercase'
+                      }}>
+                        {meta.label.split('/')[0]}
+                      </span>
+                    </div>
+
+                    {/* Estado en vivo */}
+                    {tOccupied ? (
+                      <span style={{
+                        fontSize: '0.62rem',
+                        fontWeight: 800,
+                        color: tPaused ? 'var(--color-gold)' : 'var(--color-brand)',
+                        background: tPaused ? 'rgba(251, 191, 36, 0.15)' : 'rgba(0, 230, 118, 0.15)',
+                        padding: '1px 6px',
+                        borderRadius: '4px'
+                      }}>
+                        {tPaused ? 'PAUSA' : 'EN JUEGO'}
+                      </span>
+                    ) : t.status === 'maintenance' ? (
+                      <span style={{
+                        fontSize: '0.62rem',
+                        fontWeight: 800,
+                        color: 'var(--color-gold)',
+                        background: 'rgba(251, 191, 36, 0.18)',
+                        padding: '1px 6px',
+                        borderRadius: '4px'
+                      }}>
+                        MANT.
+                      </span>
+                    ) : (
+                      <span style={{
+                        fontSize: '0.62rem',
+                        fontWeight: 700,
+                        color: 'var(--text-muted)',
+                        background: 'rgba(255, 255, 255, 0.05)',
+                        padding: '1px 5px',
+                        borderRadius: '4px'
+                      }}>
+                        LIBRE
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Nombre de la mesa */}
+                  <div style={{
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    color: isSelected ? '#fff' : 'var(--text-secondary)',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis'
+                  }}>
+                    {t.name}
+                  </div>
+
+                  {/* Marcador en vivo / Tiempo */}
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    fontSize: '0.72rem',
+                    marginTop: '2px',
+                    borderTop: '1px solid rgba(255, 255, 255, 0.06)',
+                    paddingTop: '3px'
+                  }}>
+                    {tOccupied ? (
+                      <>
+                        <span className="mono" style={{ color: 'var(--color-brand)', fontWeight: 800 }}>
+                          ⏱ {formatSessionDuration(t.current_session).slice(3)}
+                        </span>
+                        <span className="mono" style={{ color: '#fff', fontWeight: 800, background: 'rgba(0,0,0,0.4)', padding: '1px 5px', borderRadius: '3px' }}>
+                          {tScore.score1 || 0} - {tScore.score2 || 0}
+                        </span>
+                      </>
+                    ) : (
+                      <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>
+                        {formatCurrency(t.hourly_rate)}/h
+                      </span>
+                    )}
+                  </div>
+
+                  {isSelected && (
+                    <div style={{
+                      position: 'absolute',
+                      top: '-6px',
+                      right: '8px',
+                      background: 'var(--color-brand)',
+                      color: '#090d16',
+                      fontSize: '0.58rem',
+                      fontWeight: 900,
+                      padding: '1px 5px',
+                      borderRadius: '3px',
+                      letterSpacing: '0.03em'
+                    }}>
+                      ACTIVA
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* --- TOP HEADER: TABLE ID, TIMER, TOTAL VISOR --- */}
       <div className="glass-panel" style={{
         padding: '1.25rem 2rem',
@@ -189,34 +583,92 @@ export default function TableKiosk({ tableId, tablesOverview, onStateChange }) {
       }}>
         {/* Table Badge */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <div style={{
-            background: isOccupied ? 'var(--color-brand)' : 'var(--border-subtle)',
-            color: '#090d16',
-            width: '56px',
-            height: '56px',
-            borderRadius: '16px',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: isOccupied ? 'var(--shadow-neon-green)' : 'none'
-          }}>
-            <span style={{ fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', lineHeight: 1 }}>MESA</span>
-            <span style={{ fontSize: '1.7rem', fontWeight: 900, lineHeight: 1 }}>{currentTable.table_number}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            {filteredTables.length > 1 && (
+              <button
+                type="button"
+                onClick={handlePrevTable}
+                title="Mesa anterior (←)"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.06)',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '0.5rem',
+                  color: 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                <ChevronLeft size={18} />
+              </button>
+            )}
+
+            <div style={{
+              background: isOccupied ? 'var(--color-brand)' : 'var(--border-subtle)',
+              color: '#090d16',
+              width: '56px',
+              height: '56px',
+              borderRadius: '16px',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: isOccupied ? 'var(--shadow-neon-green)' : 'none'
+            }}>
+              <span style={{ fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', lineHeight: 1 }}>MESA</span>
+              <span style={{ fontSize: '1.7rem', fontWeight: 900, lineHeight: 1 }}>{currentTable.table_number}</span>
+            </div>
+
+            {filteredTables.length > 1 && (
+              <button
+                type="button"
+                onClick={handleNextTable}
+                title="Mesa siguiente (→)"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.06)',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '0.5rem',
+                  color: 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                <ChevronRight size={18} />
+              </button>
+            )}
           </div>
+
           <div>
-            <h1 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#fff', margin: 0 }}>
-              {currentTable.name}
-            </h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              <h1 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#fff', margin: 0 }}>
+                {currentTable.name}
+              </h1>
+              <span style={{
+                background: currentCategoryMeta.color,
+                color: '#fff',
+                fontSize: '0.68rem',
+                fontWeight: 800,
+                padding: '2px 8px',
+                borderRadius: '4px',
+                textTransform: 'uppercase'
+              }}>
+                {currentCategoryMeta.icon} {currentCategoryMeta.label}
+              </span>
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '4px' }}>
               <span style={{
                 fontSize: '0.75rem',
                 fontWeight: 700,
-                color: isOccupied ? 'var(--color-brand)' : 'var(--text-muted)',
+                color: isOccupied ? 'var(--color-brand)' : currentTable.status === 'maintenance' ? 'var(--color-gold)' : 'var(--text-muted)',
                 textTransform: 'uppercase',
                 letterSpacing: '0.05em'
               }}>
-                {isOccupied ? '• Partida en curso' : '• Mesa Libre'}
+                {isOccupied ? '• Partida en curso' : currentTable.status === 'maintenance' ? '• En Mantenimiento' : '• Mesa Libre'}
               </span>
               <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>|</span>
               <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>
@@ -616,6 +1068,44 @@ export default function TableKiosk({ tableId, tablesOverview, onStateChange }) {
               >
                 <Plus size={36} />
               </button>
+            </div>
+          </div>
+        </div>
+      ) : currentTable.status === 'maintenance' ? (
+        /* TABLE MAINTENANCE SCREEN */
+        <div className="glass-panel" style={{
+          padding: '4rem 2rem',
+          textAlign: 'center',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '1.5rem',
+          border: '2px dashed rgba(251, 191, 36, 0.4)',
+          background: 'rgba(251, 191, 36, 0.03)'
+        }}>
+          <div style={{
+            width: '84px',
+            height: '84px',
+            borderRadius: '50%',
+            background: 'rgba(251, 191, 36, 0.12)',
+            border: '2px solid var(--color-gold)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: 'var(--shadow-neon-gold)'
+          }}>
+            <Wrench size={42} color="var(--color-gold)" />
+          </div>
+          <div>
+            <h2 style={{ fontSize: '2rem', fontWeight: 900, color: '#fff', marginBottom: '0.5rem' }}>
+              Mesa {currentTable.table_number} en Mantenimiento
+            </h2>
+            <p style={{ color: 'var(--text-secondary)', maxWidth: '520px', margin: '0 auto', fontSize: '1.05rem', lineHeight: 1.5 }}>
+              Esta mesa se encuentra temporalmente fuera de servicio por cambio de paño, nivelación de pizarra o reparación de bandas.
+            </p>
+            <div style={{ marginTop: '1rem', color: 'var(--color-gold)', fontWeight: 700, fontSize: '0.9rem' }}>
+              🛠️ El administrador o cajero habilitará la mesa tan pronto finalice el trabajo técnico.
             </div>
           </div>
         </div>
